@@ -5,6 +5,7 @@
 <p align="center">
   <img alt="Created with Codex" src="https://img.shields.io/badge/Created_with-Codex-bed9c5?style=flat-square&amp;labelColor=202a24">
   <img alt="100% vibe coded" src="https://img.shields.io/badge/vibe_coded-100%25-bed9c5?style=flat-square&amp;labelColor=202a24">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-bed9c5?style=flat-square&amp;labelColor=202a24"></a>
   <img alt="Platform: Windows" src="https://img.shields.io/badge/Windows-desktop-202a24?style=flat-square&amp;labelColor=101613">
   <img alt="Status: early development" src="https://img.shields.io/badge/status-early_development-bed9c5?style=flat-square&amp;labelColor=202a24">
   <img alt="Built with Tauri, Rust and Svelte" src="https://img.shields.io/badge/Tauri_2-Rust_%2B_Svelte_5-bed9c5?style=flat-square&amp;labelColor=202a24">
@@ -122,4 +123,4 @@ Bug reports are welcome: include the app version, Windows version, affected sour
 
 Built with **Tauri 2 · Rust · Svelte 5 · TypeScript · SQLite**. Independent project; not affiliated with the stores or metadata services listed above. Third-party names belong to their respective owners.
 
-No open-source license has been selected yet. Public availability does not grant a general redistribution or reuse license.
+Licensed under the [MIT License](LICENSE).

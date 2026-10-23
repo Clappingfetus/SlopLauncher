@@ -1,6 +1,6 @@
 # Contributing
 
-This project is in early development and has no selected open-source license yet. Discuss substantial changes in an issue before preparing a contribution.
+This project is in early development and is licensed under the [MIT License](LICENSE). Discuss substantial changes in an issue before preparing a contribution.
 
 ## Useful bug reports
 

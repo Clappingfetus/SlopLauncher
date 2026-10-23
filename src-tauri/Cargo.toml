@@ -4,6 +4,7 @@ version = "0.9.28"
 description = "A quiet home for your games"
 authors = ["SlopLauncher"]
 edition = "2021"
+license = "MIT"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
