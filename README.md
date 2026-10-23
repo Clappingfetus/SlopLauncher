@@ -39,7 +39,7 @@ Emulated games use configurable profiles for RetroArch and other emulators, incl
 
 ### Details worth opening
 
-- **Metadata & artwork:** optional IGDB, SteamGridDB, and ScreenScraper integrations. Native store covers take priority; SteamGridDB fills gaps by default for PC games. Choose alternate covers or backgrounds per game.
+- **Metadata & artwork:** optional IGDB and SteamGridDB integrations. **ScreenScraper integration is planned but not implemented yet.** Native store covers take priority; SteamGridDB fills gaps by default for PC games. Choose alternate covers or backgrounds per game.
 - **Useful links:** PCGamingWiki, HowLongToBeat, relevant store/community pages, and verified Nexus Mods entries live in game details.
 - **Ratings:** Steam, GOG, Metacritic, and itch.io user ratings alongside OpenCritic critic scores, when available. The consensus weights the user category **60%** and critics **40%**; when only one category exists, it supplies the score. Sorting uses the precise score; stars display in half-star increments.
 - **Achievements:** Steam achievement progress and explicitly linked RetroAchievements profiles. Your emulator earns RetroAchievements; SlopLauncher displays progress.
