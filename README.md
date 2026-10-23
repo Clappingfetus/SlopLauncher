@@ -4,6 +4,7 @@
 
 <p align="center">
   <img alt="Created with Codex" src="https://img.shields.io/badge/Created_with-Codex-bed9c5?style=flat-square&amp;labelColor=202a24">
+  <img alt="100% vibe coded" src="https://img.shields.io/badge/vibe_coded-100%25-bed9c5?style=flat-square&amp;labelColor=202a24">
   <img alt="Platform: Windows" src="https://img.shields.io/badge/Windows-desktop-202a24?style=flat-square&amp;labelColor=101613">
   <img alt="Status: early development" src="https://img.shields.io/badge/status-early_development-bed9c5?style=flat-square&amp;labelColor=202a24">
   <img alt="Built with Tauri, Rust and Svelte" src="https://img.shields.io/badge/Tauri_2-Rust_%2B_Svelte_5-bed9c5?style=flat-square&amp;labelColor=202a24">
@@ -18,6 +19,16 @@ Built around responsive navigation, local persistence, and a quiet interface. **
 
 ![SlopLauncher library with fictional sample titles and original placeholder artwork](docs/media/library.png)
 *Actual application UI with fictional sample games and original placeholder covers. No account data, scraped metadata, or downloaded game artwork is included in this repository.*
+
+## Yes, it is entirely vibe coded
+
+**100% vibe coded with Codex.** The development process involves describing an unreasonable number of launcher features, saying “make it faster,” and discovering that there is, in fact, another edge case.
+
+The name is SlopLauncher. We felt disclosure was already fairly prominent.
+
+Underneath the vibes are actual tests, a Rust backend, and an ongoing campaign against duplicate games. Bugs are welcome in the issue tracker; they have already made themselves welcome in development.
+
+*Built to organize the games we will definitely play right after we finish organizing them.*
 
 ## A library that fits you
 
