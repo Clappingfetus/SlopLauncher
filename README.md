@@ -26,7 +26,7 @@ Built around responsive navigation, local persistence, and a quiet interface. **
 
 The name is SlopLauncher. We felt disclosure was already fairly prominent.
 
-We vibe coded a better launcher than Epic. Allegedly. Our legal department is also vibe coded.
+We vibe coded a better launcher than Epic. lol
 
 Underneath the vibes are actual tests, a Rust backend, and an ongoing campaign against duplicate games. Bugs are welcome in the issue tracker; they have already made themselves welcome in development.
 
