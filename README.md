@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <img alt="Created with Codex" src="https://img.shields.io/badge/Created_with-Codex-bed9c5?style=flat-square&amp;labelColor=202a24">
   <img alt="Platform: Windows" src="https://img.shields.io/badge/Windows-desktop-202a24?style=flat-square&amp;labelColor=101613">
   <img alt="Status: early development" src="https://img.shields.io/badge/status-early_development-bed9c5?style=flat-square&amp;labelColor=202a24">
   <img alt="Built with Tauri, Rust and Svelte" src="https://img.shields.io/badge/Tauri_2-Rust_%2B_Svelte_5-bed9c5?style=flat-square&amp;labelColor=202a24">
