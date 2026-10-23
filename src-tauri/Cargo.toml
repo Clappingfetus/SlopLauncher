@@ -1,0 +1,36 @@
+[package]
+name = "sloplauncher"
+version = "0.9.28"
+description = "A quiet home for your games"
+authors = ["SlopLauncher"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+uuid = { version = "1", features = ["v4"] }
+rfd = "0.15"
+regex = "1"
+sha2 = "0.10"
+base64 = "0.22"
+flate2 = "1"
+crc32fast = "1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+futures-util = "0.3"
+tokio = {version="1",features= ["sync", "time"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows-sys = { version = "0.61", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_Security_Cryptography"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+opt-level = "s"

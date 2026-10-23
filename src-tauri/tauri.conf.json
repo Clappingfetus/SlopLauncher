@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SlopLauncher",
+  "version": "0.9.28",
+  "identifier": "com.sloplauncher.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "SlopLauncher",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 900,
+        "minHeight": 640,
+        "backgroundColor": "#111413",
+        "decorations": true
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/artwork/**"
+        ]
+      },
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: http://asset.localhost https://cdn.akamai.steamstatic.com https://shared.akamai.steamstatic.com https://cdn.cloudflare.steamstatic.com https://shared.fastly.steamstatic.com https://cdn2.steamgriddb.com https://cdn.steamgriddb.com https://images.igdb.com https://cdn1.epicgames.com https://cdn2.unrealengine.com https://cdn1.unrealengine.com https://library-assets.epicgames.com https://images.gog-statics.com https://images-1.gog-statics.com https://images-2.gog-statics.com https://images-3.gog-statics.com https://images-4.gog-statics.com https://img.itch.zone https://img.itch.io https://m.media-amazon.com https://images-na.ssl-images-amazon.com; connect-src ipc: http://ipc.localhost; font-src 'self'; object-src 'none'; base-uri 'self'; frame-src 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "nsis",
+    "icon": [
+      "icons/icon.ico"
+    ]
+  }
+}
