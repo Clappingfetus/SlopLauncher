@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { ArtworkCatalog } from "./artwork-catalog";
+import { ArtworkCatalog, libraryCoverTargets } from "./artwork-catalog";
 describe("persistent library thumbnail index", () => {
   it("indexes a massive library in bounded batches without decoding or downloading prepared covers", async () => {
     const lookup = vi.fn(async (urls: string[]) =>
@@ -148,4 +148,97 @@ it("falls back to individual cache checks when batch discovery fails", async () 
     pending: 0,
     retrying: 0,
   });
+});
+
+it("prepares off-screen fallback artwork without downloading unused alternatives", async () => {
+  const prepare = vi.fn(async (url: string) => {
+    if (url === "broken") throw Error("404");
+    return `disk:${url}`;
+  });
+  const catalog = new ArtworkCatalog({
+    lookup: async () => [],
+    prepare,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  const targets = libraryCoverTargets([
+    { cover: "broken", artworkFallbacks: { cover: ["alternate", "unused"] } },
+    { cover: "healthy", artworkFallbacks: { cover: ["also-unused"] } },
+  ]);
+  catalog.reconcile([...targets.keys()], targets);
+  await catalog.step();
+  await catalog.step();
+  await catalog.step();
+  expect(prepare.mock.calls.map(([url]) => url)).toEqual([
+    "broken",
+    "alternate",
+    "healthy",
+  ]);
+  expect(catalog.peek("broken")).toBe("disk:alternate");
+  expect(catalog.source("broken")).toBe("alternate");
+  expect(catalog.stats()).toMatchObject({ total: 2, prepared: 2, retrying: 0 });
+});
+
+it("rejects obsolete fallback results and schedules changed candidates", async () => {
+  let finish!: (path: string) => void;
+  const catalog = new ArtworkCatalog({
+    lookup: async () => [],
+    prepare: async (url) => {
+      if (url === "broken") throw Error("404");
+      if (url === "old")
+        return new Promise<string>((resolve) => (finish = resolve));
+      return `disk:${url}`;
+    },
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["broken"], new Map([["broken", ["old"]]]));
+  await catalog.step();
+  const pending = catalog.step();
+  await Promise.resolve();
+  await Promise.resolve();
+  catalog.reconcile(["broken"], new Map([["broken", ["new"]]]));
+  finish("disk:old");
+  await pending;
+  expect(catalog.peek("broken")).toBeUndefined();
+  await catalog.step();
+  expect(catalog.peek("broken")).toBe("disk:new");
+  catalog.reconcile(["broken"], new Map([["broken", ["newer"]]]));
+  expect(catalog.peek("broken")).toBeUndefined();
+  await catalog.step();
+  await catalog.step();
+  expect(catalog.peek("broken")).toBe("disk:newer");
+});
+
+it("includes fallback-only and late games in shared cover targets", () => {
+  const targets = libraryCoverTargets([
+    { cover: "shared", artworkFallbacks: { cover: ["a"] } },
+    { cover: "shared", artworkFallbacks: { cover: ["b", "a"] } },
+    { artworkFallbacks: { cover: ["late", "alternative"] } },
+  ]);
+  expect([...targets]).toEqual([
+    ["shared", ["a", "b"]],
+    ["late", ["alternative"]],
+  ]);
+});
+
+it("finds persisted alternate covers on restart without making a network request", async () => {
+  const prepare = vi.fn(async () => {
+    throw Error("must not download");
+  });
+  const catalog = new ArtworkCatalog({
+    lookup: async (urls) =>
+      urls.includes("cached-alternate")
+        ? [["cached-alternate", "disk:alternate"]]
+        : [],
+    prepare,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["broken"], new Map([["broken", ["cached-alternate"]]]));
+  await catalog.step();
+  await catalog.step();
+  expect(catalog.peek("broken")).toBe("disk:alternate");
+  expect(catalog.source("broken")).toBe("cached-alternate");
+  expect(prepare).not.toHaveBeenCalled();
 });

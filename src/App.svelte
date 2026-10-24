@@ -312,13 +312,7 @@
     games.map((g) => presentCached(g, providers.revision)),
   );
   $effect(() => {
-    api.setLibraryArtwork(
-      ready && !demoMode
-        ? basePresentedGames
-            .map((g) => g.cover)
-            .filter((url): url is string => !!url)
-        : [],
-    );
+    api.setLibraryArtwork(ready && !demoMode ? presentedGames : []);
   });
   let versionsIndex = $derived(
     resolveVersions(basePresentedGames, settings, true, providers.revision),

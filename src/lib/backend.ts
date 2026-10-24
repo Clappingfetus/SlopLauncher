@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import { ArtworkCatalog } from "./artwork-catalog";
+import { ArtworkCatalog, libraryCoverTargets } from "./artwork-catalog";
 import { listen } from "@tauri-apps/api/event";
 import { currentResult } from "./enrichment-identity";
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
@@ -275,14 +275,15 @@ const artworkLoader: ArtworkLoader = new ArtworkLoader({
     const prepared = thumbnail === 256 && artworkCatalog.peek(url);
     if (prepared) return prepared;
     if (!desktop) return url;
+    const source = artworkCatalog.source(url);
     const path = convertFileSrc(
       await invoke<string>("cached_artwork", {
-        url,
+        url: source,
         thumbnail: thumbnail || null,
       }),
     );
     // Browsing and background work populate the same persistent thumbnail index.
-    if (thumbnail === 256) artworkCatalog.remember(url, path);
+    if (thumbnail === 256) artworkCatalog.remember(url, path, source);
     return path;
   },
   decode: decodeArtwork,
@@ -310,8 +311,10 @@ const artworkCatalog: ArtworkCatalog = new ArtworkCatalog({
     artworkLoader.stats().active > 0 || artworkLoader.stats().queued > 0,
   changed: () => artworkCatalogState.set(artworkCatalog.stats()),
 });
-export const setLibraryArtwork = (urls: string[]) => {
-  if (desktop) artworkCatalog.reconcile(urls);
+export const setLibraryArtwork = (games: Game[]) => {
+  if (!desktop) return;
+  const targets = libraryCoverTargets(games);
+  artworkCatalog.reconcile([...targets.keys()], targets);
 };
 export const invalidatePreparedArtwork = (url: string) =>
   artworkCatalog.invalidate(url);
