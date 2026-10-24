@@ -127,3 +127,13 @@ it("keeps saved ordering through additions and deletions, and moves rows before 
     restored,
   );
 });
+
+it("keeps the activity shelf mixed when the latest additions were already played", () => {
+  const played = Array.from({ length: 8 }, (_, i) => game(`played-${i}`));
+  const fresh = game("new-unplayed");
+  expect(
+    recentActivity(played, [...played, fresh])
+      .slice(0, 4)
+      .map((g) => g.id),
+  ).toEqual(["played-0", "played-1", "played-2", "new-unplayed"]);
+});

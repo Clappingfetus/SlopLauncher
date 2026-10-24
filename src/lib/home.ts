@@ -10,6 +10,10 @@ export const HOME_ROW_DRAG = "application/x-sloplauncher-home-row";
 const byTitle = (a: Game, b: Game) => a.title.localeCompare(b.title);
 // Three played entries per addition keep activity focused on returning to games.
 export function recentActivity(played: Game[], added: Game[]) {
+  // A game already represented in the played stream must not consume an
+  // addition slot, or the mixed shelf can accidentally mirror Recently Played.
+  const playedIds = new Set(played.map((g) => g.id));
+  added = added.filter((g) => !playedIds.has(g.id));
   const result: Game[] = [],
     seen = new Set<string>();
   let p = 0,
