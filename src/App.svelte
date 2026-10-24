@@ -1866,11 +1866,9 @@
             <h1 id="settings-page-title">Settings</h1>
           </div>
           <span class="settings-save-state"
-            >{saveStatus === "saving"
-              ? "Saving…"
-              : saveStatus === "error"
-                ? "Could not save changes"
-                : "Changes save automatically"}{#if saveStatus === "error"}<button
+            >{saveStatus === "error"
+              ? "Could not save changes"
+              : "Changes save automatically"}{#if saveStatus === "error"}<button
                 class="text-button"
                 onclick={() =>
                   demoMode ? setTheme(settings.theme) : persist()}
@@ -2308,9 +2306,7 @@
                     ? "Preview changes are temporary"
                     : saveStatus === "error"
                       ? "Changes have not been saved"
-                      : saveStatus === "saving"
-                        ? "Saving changes…"
-                        : "Saved locally on this PC"}</span
+                      : "Changes save automatically on this PC"}</span
                 >
                 {#if !demoMode && saveStatus === "error"}<button
                     class="text-button"
@@ -2682,15 +2678,11 @@
           <span
             >{demoMode
               ? "Sample games · artwork from Steam"
-              : busy === "scan"
-                ? "Reading local game records…"
-                : checkingInstalls && saveStatus !== "error"
-                  ? "Checking installation progress…"
-                  : saveStatus === "saving"
-                    ? "Saving changes…"
-                    : saveStatus === "error"
-                      ? "Changes could not be saved"
-                      : "All changes saved on this PC"}</span
+              : saveStatus === "error"
+                ? "Changes could not be saved"
+                : busy === "scan"
+                  ? "Reading local game records…"
+                  : "Changes save automatically on this PC"}</span
           ><span
             >{filtered.length}
             {filtered.length === 1 ? "game" : "games"}<span class="footer-dot"
