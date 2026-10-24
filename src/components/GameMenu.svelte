@@ -2,12 +2,19 @@
   import { onMount, tick, untrack } from "svelte";
   import {
     MoreHorizontal,
+    FolderPlus,
+    Folder,
+    ChevronRight,
+    ArrowLeft,
+    Check,
+    Plus,
     Info,
     FolderOpen,
     Gamepad2,
     Image,
     Trash2,
   } from "@lucide/svelte";
+  import type { GameCollection } from "../lib/types";
   let {
     gameId,
     copyId,
@@ -22,6 +29,9 @@
     artworkOnly,
     onresetartwork,
     onclose,
+    collections = [],
+    onaddtocollection,
+    onnewcollection,
   }: {
     gameId: string;
     copyId?: string;
@@ -36,10 +46,26 @@
     artworkOnly?: "cover" | "hero";
     onresetartwork?: () => void;
     onclose?: () => void;
+    collections?: GameCollection[];
+    onaddtocollection?: (id: string) => void;
+    onnewcollection?: () => void;
   } = $props();
   let trigger = $state<HTMLButtonElement>();
   let menu = $state<HTMLDivElement>();
   let expanded = $state(false);
+  let choosingCollection = $state(false);
+  async function collectionMenu(open: boolean) {
+    choosingCollection = open;
+    await tick();
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+    menu.style.top = `${Math.max(12, Math.min(rect.top, innerHeight - rect.height - 12))}px`;
+    menu
+      .querySelector<HTMLButtonElement>(
+        open ? "button:not(:disabled)" : "[data-collection-trigger]",
+      )
+      ?.focus();
+  }
   let openedIdentity = $state("");
   let anchorTop = 0,
     anchorLeft = 0;
@@ -51,6 +77,7 @@
   }
   async function show(last = false) {
     if (!menu?.isConnected) return;
+    choosingCollection = false;
     openedIdentity = JSON.stringify([gameId, copyId]);
     const rect = anchor
       ? { top: anchor.y, bottom: anchor.y, left: anchor.x, right: anchor.x }
@@ -72,7 +99,17 @@
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      dismiss(true);
+      if (choosingCollection) void collectionMenu(false);
+      else dismiss(true);
+    } else if (event.key === "ArrowLeft" && choosingCollection) {
+      event.preventDefault();
+      void collectionMenu(false);
+    } else if (
+      event.key === "ArrowRight" &&
+      (event.target as HTMLElement).hasAttribute("data-collection-trigger")
+    ) {
+      event.preventDefault();
+      void collectionMenu(true);
     } else if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
       event.preventDefault();
       const items = Array.from(
@@ -100,7 +137,8 @@
   });
   onMount(() => {
     const close = () => dismiss();
-    const scroll = () => {
+    const scroll = (event: Event) => {
+      if (event.target instanceof Node && menu?.contains(event.target)) return;
       if (anchor) {
         dismiss();
         return;
@@ -174,6 +212,47 @@
         ? "Use Default Box Art"
         : "Use Default Background"}</button
     >
+  {:else if choosingCollection}
+    <button role="menuitem" onclick={() => void collectionMenu(false)}
+      ><ArrowLeft size={16} />Add to Collection</button
+    >
+    <div class="collection-menu-list">
+      {#each collections as collection (collection.id)}
+        <button
+          role="menuitem"
+          disabled={!!collection.rule || collection.gameIds.includes(gameId)}
+          title={collection.rule
+            ? "Automatic collection: membership follows its saved rules"
+            : collection.gameIds.includes(gameId)
+              ? "Already in this collection"
+              : `Add to ${collection.name}`}
+          onclick={() => {
+            onaddtocollection?.(collection.id);
+            dismiss();
+          }}
+        >
+          <Folder size={16} /><span
+            >{collection.name}<small
+              >{collection.rule
+                ? "Automatic"
+                : collection.gameIds.includes(gameId)
+                  ? "Already added"
+                  : ""}</small
+            ></span
+          >
+          {#if collection.gameIds.includes(gameId)}<Check size={14} />{/if}
+        </button>
+      {:else}<p class="collection-menu-empty">
+          Create your first collection below.
+        </p>{/each}
+    </div>
+    {#if onnewcollection}<button
+        role="menuitem"
+        onclick={() => {
+          onnewcollection?.();
+          dismiss();
+        }}><Plus size={16} />New Collection…</button
+      >{/if}
   {:else}
     <button
       role="menuitem"
@@ -182,6 +261,16 @@
         ondetails();
       }}><Info size={16} />Game Details</button
     >
+    {#if onaddtocollection}<button
+        role="menuitem"
+        data-collection-trigger
+        aria-haspopup="menu"
+        aria-expanded={choosingCollection}
+        onclick={() => void collectionMenu(true)}
+        ><FolderPlus size={16} />Add to Collection<ChevronRight
+          size={14}
+        /></button
+      >{/if}
     <button
       role="menuitem"
       disabled={!!browseUnavailable}
@@ -247,6 +336,28 @@
   .game-menu button:focus-visible {
     background: var(--surface-hover);
     outline-offset: -2px;
+  }
+  .collection-menu-list {
+    max-height: min(330px, 48vh);
+    overflow-y: auto;
+    border-block: 1px solid var(--line);
+    margin-block: 4px;
+  }
+  .collection-menu-list button span {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .collection-menu-list small {
+    display: block;
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+  .collection-menu-empty {
+    padding: 10px;
+    color: var(--muted);
+    font-size: 12px;
   }
   .game-menu button :global(svg) {
     color: var(--muted);

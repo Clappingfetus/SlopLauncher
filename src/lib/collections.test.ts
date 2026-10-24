@@ -5,6 +5,7 @@ import {
   collectionMembers,
   saveCollection,
   setMembership,
+  addCollectionGame,
   withoutGame,
 } from "./collections";
 import { filterGames, mergeDiscovered, mergeOwnedLibrary } from "./library";
@@ -310,4 +311,31 @@ it("updates HLTB collections when current metadata arrives or identity is rematc
   g.title = "Rematched identity";
   expect(collectionMembers(saved, [g])).toEqual([]);
   expect(collectionMembers(saved, [])).toEqual([]);
+});
+
+it("adds late games idempotently and rejects stale collection gestures", () => {
+  const games = demoGames();
+  const folders: GameCollection[] = [
+    { id: "weekend", name: "Weekend", gameIds: [] },
+  ];
+  const late = { ...games[0], id: "late-added" };
+  expect(() => addCollectionGame(folders, "weekend", late.id, games)).toThrow(
+    "no longer available",
+  );
+  const live = [...games, late];
+  const added = addCollectionGame(folders, "weekend", late.id, live);
+  expect(added[0].gameIds).toEqual([late.id]);
+  expect(addCollectionGame(added, "weekend", late.id, live)).toBe(added);
+  expect(() => addCollectionGame([], "weekend", late.id, live)).toThrow(
+    "no longer available",
+  );
+  expect(JSON.parse(JSON.stringify(added))[0].gameIds).toEqual([late.id]);
+  const automatic: GameCollection = {
+    ...folders[0],
+    rule: { mode: "tags", groupId: "tag:co-op", groups: [] },
+  };
+  expect(() =>
+    addCollectionGame([automatic], automatic.id, late.id, live),
+  ).toThrow("automatic rules");
+  expect(automatic.gameIds).toEqual([]);
 });

@@ -20,6 +20,7 @@
     onsavegroup,
     oncontext,
     versionCount,
+    draggable = true,
   }: {
     games: Game[];
     groups?: LibraryGroup[];
@@ -34,6 +35,7 @@
     onsavegroup?: (id: string) => void;
     oncontext?: (event: MouseEvent, game: Game) => void;
     versionCount?: (game: Game) => number;
+    draggable?: boolean;
   } = $props();
   let width = $state(900),
     height = $state(700),
@@ -127,6 +129,7 @@
           {#each row.games as game (game.id)}
             <GameCard
               {game}
+              {draggable}
               thumbnail={row.top + row.height > top && row.top < top + height
                 ? thumbnail
                 : Math.min(thumbnail, 256)}

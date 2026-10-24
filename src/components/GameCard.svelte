@@ -4,6 +4,7 @@
   import { sourceNames, type Game } from "../lib/types";
   import { preferredCopy } from "../lib/library";
   import { launchAction } from "../lib/launch-action";
+  import { startGameDrag, endGameDrag, draggedGameId } from "../lib/game-drag";
   import Cover from "./Cover.svelte";
   let {
     game,
@@ -15,6 +16,7 @@
     onlaunch,
     oncontext,
     versionCount = game.copies.length,
+    draggable = true,
   }: {
     game: Game;
     thumbnail: number;
@@ -25,16 +27,27 @@
     onlaunch: (game: Game) => void;
     oncontext?: (event: MouseEvent, game: Game) => void;
     versionCount?: number;
+    draggable?: boolean;
   } = $props();
   let copy = $derived(preferredCopy(game));
   let installed = $derived(!!copy?.installed);
   let action = $derived(launchAction(game));
 </script>
 
-<article class="game-card" class:game-hidden={game.hidden}>
+<article
+  class="game-card"
+  class:game-hidden={game.hidden}
+  class:game-dragging={$draggedGameId === game.id}
+>
   <div class="cover-wrap">
     <button
       class="cover-button"
+      {draggable}
+      ondragstart={(event) => {
+        if (draggable) startGameDrag(event, game);
+        else event.preventDefault();
+      }}
+      ondragend={endGameDrag}
       oncontextmenu={(event) => oncontext?.(event, game)}
       onclick={() => onopen(game)}
       aria-label={`View ${game.title}`}

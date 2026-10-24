@@ -51,6 +51,7 @@
   } from "./lib/duplicate-flags";
   import { InstallationWatch } from "./lib/installation-watch";
   import { launchAction } from "./lib/launch-action";
+  import { draggedGameId, endGameDrag, GAME_DRAG_TYPE } from "./lib/game-drag";
   import GameMenu from "./components/GameMenu.svelte";
   import ArtworkPicker from "./components/ArtworkPicker.svelte";
   import { artworkCatalogState } from "./lib/backend";
@@ -74,6 +75,7 @@
     isCollectionFilter,
     saveCollection,
     setMembership,
+    addCollectionGame,
     withoutGame,
     collectionCounts,
     resolveCollections,
@@ -1011,6 +1013,63 @@
     if (filter === `collection:${id}`) navigate("all");
     notify("Collection deleted. Your games were kept.");
   }
+  let dropCollection = $state<string | null>(null);
+  let draggedGame = $derived(
+    $draggedGameId ? gameIndex.get($draggedGameId) : undefined,
+  );
+  function addToCollection(gameId: string, collectionId: string) {
+    if (demoMode) return;
+    try {
+      const next = addCollectionGame(collections, collectionId, gameId, games);
+      if (next === collections) {
+        notify("Already in this collection.");
+        return;
+      }
+      settings.collections = next;
+      persistSettings();
+      notify(
+        `Added to ${collections.find((c) => c.id === collectionId)?.name ?? "collection"}.`,
+      );
+    } catch (error) {
+      notify(String(error instanceof Error ? error.message : error), true);
+    }
+  }
+  function dropMessage(collection: GameCollection) {
+    return collection.rule
+      ? "Automatic rules"
+      : collection.gameIds.includes($draggedGameId ?? "")
+        ? "Already added"
+        : "Drop to add";
+  }
+  function collectionDragOver(event: DragEvent, collection?: GameCollection) {
+    if (
+      !draggedGame ||
+      demoMode ||
+      !event.dataTransfer?.types.includes(GAME_DRAG_TYPE)
+    )
+      return;
+    event.preventDefault();
+    const allowed =
+      !collection?.rule && !collection?.gameIds.includes(draggedGame.id);
+    event.dataTransfer.dropEffect = allowed ? "copy" : "none";
+    dropCollection = collection?.id ?? "new";
+  }
+  function collectionDrop(event: DragEvent, collectionId?: string) {
+    event.preventDefault();
+    const gameId = $draggedGameId;
+    const valid =
+      gameId &&
+      event.dataTransfer?.getData(GAME_DRAG_TYPE) === gameId &&
+      gameIndex.has(gameId);
+    endGameDrag();
+    dropCollection = null;
+    if (!valid || demoMode) return;
+    if (collectionId) addToCollection(gameId, collectionId);
+    else editCollection(undefined, gameId);
+  }
+  $effect(() => {
+    if (!$draggedGameId) dropCollection = null;
+  });
   function changeMembership(collectionId: string, included: boolean) {
     if (demoMode || !selectedId || !games.some((g) => g.id === selectedId))
       return;
@@ -1610,6 +1669,7 @@
 </script>
 
 <svelte:window
+  ondragend={endGameDrag}
   onkeydown={keyboard}
   onpopstate={popstate}
   onfocus={() => {
@@ -1671,6 +1731,10 @@
       <div class="nav-heading">
         COLLECTIONS <button
           aria-label="New collection"
+          class:collection-drop-over={dropCollection === "new"}
+          ondragover={(event) => collectionDragOver(event)}
+          ondragleave={() => (dropCollection = null)}
+          ondrop={(event) => collectionDrop(event)}
           title={demoMode
             ? "Use your own library to create collections"
             : "Create a collection"}
@@ -1678,16 +1742,39 @@
           onclick={() => editCollection()}><Plus size={14} /></button
         >
       </div>
-      <nav class="collection-nav" aria-label="Collections">
+      <p class="collection-drag-instruction" role="status">
+        {draggedGame ? "Drop into a collection" : "Drag games here to collect"}
+      </p>
+      <nav
+        class="collection-nav"
+        class:collection-drag-active={!!draggedGame}
+        aria-label="Collections"
+      >
         {#each collections as collection (collection.id)}<button
+            class:collection-drop-ready={!!draggedGame && !collection.rule}
+            class:collection-drop-over={dropCollection === collection.id}
+            class:collection-drop-blocked={!!draggedGame && !!collection.rule}
+            ondragover={(event) => collectionDragOver(event, collection)}
+            ondragleave={(event) => {
+              if (
+                !(event.relatedTarget instanceof Node) ||
+                !event.currentTarget.contains(event.relatedTarget)
+              )
+                dropCollection = null;
+            }}
+            ondrop={(event) => collectionDrop(event, collection.id)}
             class:nav-active={page === "library" &&
               filter === `collection:${collection.id}`}
             onclick={() => navigate(`collection:${collection.id}`)}
-            title={collection.name}
+            title={draggedGame
+              ? `${collection.name} · ${dropMessage(collection)}`
+              : collection.name}
             ><Folder size={17} /><span class="collection-nav-name"
               >{collection.name}</span
-            ><span class="nav-count"
-              >{folderCounts.get(collection.id) ?? 0}</span
+            ><span class="nav-count" class:collection-drop-label={!!draggedGame}
+              >{draggedGame
+                ? dropMessage(collection)
+                : (folderCounts.get(collection.id) ?? 0)}</span
             ></button
           >
         {:else}<span class="collection-nav-empty"
@@ -2177,6 +2264,13 @@
                   onuninstall={() => void prepareUninstall(selected!)}
                   uninstallUnavailable={uninstallUnavailable(selected)}
                   gameId={selected.id}
+                  collections={resolvedCollections}
+                  onaddtocollection={demoMode
+                    ? undefined
+                    : (id) => addToCollection(selected!.id, id)}
+                  onnewcollection={demoMode
+                    ? undefined
+                    : () => editCollection(undefined, selected!.id)}
                   copyId={copy?.id}
                   browseUnavailable={browseUnavailable(selected)}
                   ondetails={() => {
@@ -2659,6 +2753,7 @@
               onhide={hideGame}
               onlaunch={launch}
               oncontext={showGameContext}
+              draggable={!demoMode}
               versionCount={(game) =>
                 settings.hideDuplicateGames
                   ? versionsIndex.versions(game.id).length
@@ -2704,6 +2799,13 @@
 {#if contextMenu && contextGame}
   <GameMenu
     gameId={contextGame.id}
+    collections={resolvedCollections}
+    onaddtocollection={demoMode
+      ? undefined
+      : (id) => addToCollection(contextGame!.id, id)}
+    onnewcollection={demoMode
+      ? undefined
+      : () => editCollection(undefined, contextGame!.id)}
     copyId={preferredCopy(contextGame)?.id}
     anchor={contextMenu.anchor}
     artworkOnly={contextMenu.slot}

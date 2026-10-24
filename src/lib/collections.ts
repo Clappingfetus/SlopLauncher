@@ -131,3 +131,23 @@ export function collectionCounts(collections: GameCollection[], games: Game[]) {
     ]),
   );
 }
+
+// Both menu and drag actions validate current objects; a game or folder can
+// disappear while a menu is open or a native drag gesture is in flight.
+export function addCollectionGame(
+  collections: GameCollection[],
+  collectionId: string,
+  gameId: string,
+  games: Game[],
+) {
+  const collection = collections.find((c) => c.id === collectionId);
+  if (!collection || !games.some((g) => g.id === gameId))
+    throw Error("This game or collection is no longer available.");
+  if (collection.rule)
+    throw Error(
+      "This collection follows automatic rules. Edit its rules to change the games it includes.",
+    );
+  return collection.gameIds.includes(gameId)
+    ? collections
+    : setMembership(collections, collectionId, gameId, true);
+}
