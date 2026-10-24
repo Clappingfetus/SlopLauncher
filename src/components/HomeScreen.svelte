@@ -160,7 +160,7 @@
                   event.dataTransfer.effectAllowed = "move";
                 }}
                 ondragend={finish}
-                ><GripVertical size={16} />{shelf.title}</button
+                ><GripVertical size={16} /><span>{shelf.title}</span></button
               ><span class="shelf-count">{shelf.games.length}</span>
             </h2>
             <p>{shelf.description}</p>
@@ -284,7 +284,12 @@
     margin-bottom: 10px;
     gap: 16px;
   }
+  .shelf-heading > div:first-child {
+    min-width: 0;
+    flex: 1;
+  }
   .shelf-heading h2 {
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -292,19 +297,28 @@
     font-weight: 600;
   }
   .shelf-title {
+    min-width: 0;
+    max-width: 100%;
     display: flex;
     align-items: center;
     gap: 7px;
     padding: 2px 0;
     cursor: grab;
   }
+  .shelf-title span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .shelf-title:active {
     cursor: grabbing;
   }
   .shelf-title :global(svg) {
+    flex-shrink: 0;
     color: var(--faint);
   }
   .shelf-count {
+    flex-shrink: 0;
     font-size: 10px;
     color: var(--faint);
     font-weight: 400;
