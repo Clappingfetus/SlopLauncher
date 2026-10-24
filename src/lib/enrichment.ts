@@ -493,11 +493,9 @@ export class EnrichmentQueue {
           return;
         const rank = (j: Job) => [
           Number(j.game.id !== this.priority),
-          Number(
-            !!this.options.order &&
-              (this.options.order(j.provider) ?? 0) <= 3 &&
-              (busy.get(j.provider) ?? 0) > 0,
-          ),
+          // Give every available service a slot before doubling up on one.
+          // A slow or paced provider should not hold unrelated lookups behind it.
+          Number((busy.get(j.provider) ?? 0) > 0),
           this.options.order?.(j.provider) ?? 0,
         ];
         if (!candidate) {

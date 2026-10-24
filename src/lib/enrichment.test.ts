@@ -632,3 +632,49 @@ describe("incremental background scheduling", () => {
     expect(show(g, 2)).not.toBe(show(g, 1));
   });
 });
+
+it("starts independent services before doubling up and bounds twelve concurrent lookups", async () => {
+  const games = Array.from({ length: 20 }, (_, i) =>
+    fixture(String(i), `Game ${i}`),
+  );
+  const services: ProviderId[] = [
+    "steam",
+    "igdb",
+    "pcgw",
+    "steamgriddb",
+    "nexus",
+    "reviews-steam",
+    "reviews-gog",
+  ];
+  const called: ProviderId[] = [];
+  const releases: ((value: ProviderResult) => void)[] = [];
+  const queue = new EnrichmentQueue({
+    getGames: () => games,
+    concurrency: 12,
+    perProviderConcurrency: 2,
+    enabled: (p) => services.includes(p),
+    order: (p) => services.indexOf(p),
+    now: () => 1000,
+    fetch: (_g, p) => {
+      called.push(p);
+      return new Promise((resolve) => releases.push(resolve));
+    },
+    apply: (id, p, record) => {
+      const game = games.find((g) => g.id === id)!;
+      game.enrichment = { ...game.enrichment, [p]: record };
+    },
+  });
+  queue.reconcile(games);
+  expect(called).toHaveLength(12);
+  expect(called.slice(0, services.length)).toEqual(services);
+  for (const provider of services)
+    expect(called.filter((p) => p === provider).length).toBeLessThanOrEqual(2);
+  releases[0](success(1000));
+  await tick();
+  expect(called).toHaveLength(13);
+  const running = called.slice(1);
+  expect(running).toHaveLength(12);
+  for (const provider of services)
+    expect(running.filter((p) => p === provider).length).toBeLessThanOrEqual(2);
+  queue.clear();
+});

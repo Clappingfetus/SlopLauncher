@@ -207,7 +207,7 @@
   const dirtyEnrichment = new Set<string>();
   let lastEnrichmentSave = 0;
   const enrichmentQueue = new EnrichmentQueue({
-    concurrency: 6,
+    concurrency: 12,
     perProviderConcurrency: 2,
     getGame: (id) => gameIndex.get(id),
     policy: () => enrichmentPolicy,
