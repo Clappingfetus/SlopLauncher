@@ -224,6 +224,7 @@ export interface VersionPreference {
   selectedAt: number;
 }
 export interface Settings {
+  homeRowOrder?: string[];
   hideDuplicateGames?: boolean;
   preferredSource?: Source;
   versionPreferences?: Record<string, VersionPreference>;

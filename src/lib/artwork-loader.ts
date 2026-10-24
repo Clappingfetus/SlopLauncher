@@ -35,7 +35,7 @@ const keyOf = (url: string, thumbnail: number) =>
 export class ArtworkLoader {
   private entries = new Map<string, Entry>();
   private wanted = new Map<string, ArtworkRequest>();
-  private owner: unknown;
+  private windows = new Map<unknown, ArtworkRequest[]>();
   private active = 0;
   private speculative = 0;
   private clock = 0;
@@ -73,9 +73,21 @@ export class ArtworkLoader {
     };
   }
   setWindow(owner: unknown, requests: ArtworkRequest[]) {
-    this.owner = owner;
+    this.windows.set(owner, requests.slice(0, 128));
+    this.updateWindows();
+  }
+  private updateWindows() {
+    // Home can show several shelves at once. Share one bounded lookahead budget
+    // instead of letting the last shelf overwrite every other shelf's window.
+    const merged = new Map<string, ArtworkRequest>();
+    for (const requests of this.windows.values())
+      for (const request of requests) {
+        const key = keyOf(request.url, request.thumbnail);
+        if (!merged.has(key) || merged.get(key)!.priority > request.priority)
+          merged.set(key, request);
+      }
     this.wanted = new Map(
-      requests.slice(0, 128).map((r) => [keyOf(r.url, r.thumbnail), r]),
+      [...merged].sort((a, b) => a[1].priority - b[1].priority).slice(0, 128),
     );
     this.prune();
     for (const r of this.wanted.values()) {
@@ -86,12 +98,7 @@ export class ArtworkLoader {
     this.pump();
   }
   clearWindow(owner: unknown) {
-    if (this.owner === owner) {
-      this.wanted.clear();
-      this.owner = undefined;
-      this.prune();
-      this.trim();
-    }
+    if (this.windows.delete(owner)) this.updateWindows();
   }
   clear() {
     this.generation++;
@@ -102,6 +109,7 @@ export class ArtworkLoader {
     }
     this.entries.clear();
     this.wanted.clear();
+    this.windows.clear();
   }
   retry(url: string, thumbnail = 0) {
     const key = keyOf(url, thumbnail),

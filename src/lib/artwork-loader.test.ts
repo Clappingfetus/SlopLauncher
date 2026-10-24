@@ -336,3 +336,23 @@ it("purges memory and discards image decoding that finishes after a blacklist op
   expect(loader.peek("banished-cover", 256)).toBeUndefined();
   expect(loader.stats().active).toBe(0);
 });
+
+it("shares bounded lookahead across several Home shelves and releases only the retired shelf", () => {
+  const loader = new ArtworkLoader({
+    resolve: () => new Promise(() => {}),
+    decode: async (src) => ({ src, bytes: 1 }),
+  });
+  loader.setWindow(
+    "row-a",
+    Array.from({ length: 80 }, (_, i) => request(`a-${i}`, 2)),
+  );
+  loader.setWindow(
+    "row-b",
+    Array.from({ length: 80 }, (_, i) => request(`b-${i}`, 2)),
+  );
+  expect(loader.stats().wanted).toBe(128);
+  loader.clearWindow("row-a");
+  expect(loader.stats().wanted).toBe(80);
+  loader.clearWindow("row-b");
+  expect(loader.stats().wanted).toBe(0);
+});

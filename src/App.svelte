@@ -6,6 +6,7 @@
   import { onMount, tick, untrack } from "svelte";
   import {
     Library,
+    House,
     Clock3,
     Heart,
     EyeOff,
@@ -38,6 +39,8 @@
     FlaskConical,
   } from "@lucide/svelte";
   import Cover from "./components/Cover.svelte";
+  import HomeScreen from "./components/HomeScreen.svelte";
+  import { buildHomeShelves, orderHomeShelves } from "./lib/home";
   import VirtualGrid from "./components/VirtualGrid.svelte";
   import SmartGroupEditor from "./components/SmartGroupEditor.svelte";
   import { groupGames, groupOptions, validateGroups } from "./lib/grouping";
@@ -140,9 +143,12 @@
     installedOnly = $state(false),
     tagFilter = $state(""),
     sourceFilter = $state(""),
+    homeShelfFilter = $state<string | null>(null),
     sort = $state("title"),
     showFilters = $state(false);
-  let page = $state<"library" | "sources" | "settings" | "setup">("library"),
+  let page = $state<"home" | "library" | "sources" | "settings" | "setup">(
+      "home",
+    ),
     selectedId = $state<string | null>(null),
     busy = $state(""),
     toast = $state(""),
@@ -454,9 +460,18 @@
   let totalFolderCounts = $derived(
     collectionCounts(resolvedCollections, games),
   );
-  let matchingGames = $derived(
-    filterGames(
-      presentedGames,
+  let matchingGames = $derived.by(() => {
+    const members = homeShelfFilter
+      ? new Set(
+          homeShelves
+            .find((row) => row.id === homeShelfFilter)
+            ?.games.map((g) => g.id) ?? [],
+        )
+      : null;
+    return filterGames(
+      members
+        ? presentedGames.filter((g) => members.has(g.id))
+        : presentedGames,
       filter,
       query,
       installedOnly,
@@ -465,8 +480,8 @@
       resolvedCollections,
       !!settings.showHiddenGames,
       sourceFilter,
-    ),
-  );
+    );
+  });
   let filtered = $derived(
     settings.hideDuplicateGames
       ? filterGames(
@@ -481,6 +496,80 @@
         )
       : matchingGames,
   );
+  const homeScrolls = new Map<string, number>();
+  let detailsOrigin = $state<"home" | "library">("home");
+  let homeGames = $derived.by(() => {
+    const visible = presentedGames.filter(
+      (g) => settings.showHiddenGames || !g.hidden,
+    );
+    return versionsIndex.collapse(visible).map((g) => {
+      if (!settings.hideDuplicateGames) return g;
+      const members = versionsIndex.members(g.id);
+      return {
+        ...g,
+        lastPlayed:
+          Math.max(...members.map((m) => m.lastPlayed ?? 0)) || undefined,
+        addedAt: Math.min(...members.map((m) => m.addedAt)),
+      };
+    });
+  });
+  let homeCollectionGames = $derived(
+    new Map(
+      resolvedCollections.map((c) => {
+        const ids = new Set(c.gameIds);
+        return [
+          c.id,
+          versionsIndex.collapse(
+            presentedGames.filter(
+              (g) => ids.has(g.id) && (settings.showHiddenGames || !g.hidden),
+            ),
+          ),
+        ];
+      }),
+    ),
+  );
+  let homeShelves = $derived(
+    orderHomeShelves(
+      buildHomeShelves(
+        homeGames,
+        resolvedCollections,
+        clockTime,
+        homeCollectionGames,
+      ),
+      settings.homeRowOrder,
+    ),
+  );
+  function showHome() {
+    selectedId = null;
+    page = "home";
+    selectionMode = false;
+    selectionIds = new Set();
+    query = "";
+    homeShelfFilter = null;
+    window.history.replaceState({}, "");
+  }
+  function saveHomeOrder(order: string[]) {
+    settings.homeRowOrder = order;
+    if (!demoMode) persistSettings();
+  }
+  function browseHomeShelf(id: string) {
+    if (id.startsWith("collection:")) {
+      navigate(id as Filter);
+      return;
+    }
+    navigate(id === "played" ? "recent" : "all");
+    if (id !== "activity") homeShelfFilter = id;
+    sort =
+      id === "added"
+        ? "added"
+        : id === "released"
+          ? "year"
+          : id === "short"
+            ? "hltb-asc"
+            : id === "long"
+              ? "hltb-desc"
+              : "recent";
+  }
   function browseUnavailable(game: Game) {
     const copy = preferredCopy(game);
     return !copy?.installed
@@ -754,17 +843,19 @@
       : [],
   );
   let title = $derived(
-    isCollectionFilter(filter)
-      ? (activeCollection?.name ?? "Collection")
-      : filter === "all"
-        ? "Library"
-        : filter === "recent"
-          ? "Recently played"
-          : filter === "favorites"
-            ? "Favorites"
-            : filter === "hidden"
-              ? "Hidden Games"
-              : sourceNames[filter],
+    homeShelfFilter
+      ? (homeShelves.find((s) => s.id === homeShelfFilter)?.title ?? "Library")
+      : isCollectionFilter(filter)
+        ? (activeCollection?.name ?? "Collection")
+        : filter === "all"
+          ? "Library"
+          : filter === "recent"
+            ? "Recently played"
+            : filter === "favorites"
+              ? "Favorites"
+              : filter === "hidden"
+                ? "Hidden Games"
+                : sourceNames[filter],
   );
   let installedCount = $derived(
     versionsIndex.collapse(
@@ -1245,6 +1336,7 @@
     });
   }
   function navigate(value: Filter) {
+    homeShelfFilter = null;
     selectionIds = new Set();
     selectionMode = false;
     page = "library";
@@ -1280,7 +1372,7 @@
   function popstate() {
     const id = window.history.state?.slopGame;
     selectedId = games.some((g) => g.id === id) ? id : null;
-    if (selectedId) page = "library";
+    if (selectedId) page = detailsOrigin;
   }
   function openModal(value: typeof modal) {
     if (value === "grouping") groupingEditorDraft = null;
@@ -1470,6 +1562,10 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       if (modal) return;
+      if (page === "home") {
+        filter = "all";
+        homeShelfFilter = null;
+      }
       page = "library";
       selectedId = null;
       window.history.replaceState({}, "");
@@ -1550,6 +1646,7 @@
       notify("Folder removed from your list. Your games and files were kept.");
   }
   function openGame(g: Game) {
+    detailsOrigin = page === "home" ? "home" : "library";
     window.history.pushState({ slopGame: g.id }, "");
     selectedId = g.id;
   }
@@ -1751,7 +1848,7 @@
     selectedId = null;
     query = "";
     filter = "all";
-    page = "library";
+    page = "home";
     window.history.replaceState({}, "");
     if (demoMode) {
       demoMode = false;
@@ -1763,7 +1860,7 @@
     selectedId = null;
     query = "";
     filter = "all";
-    page = "library";
+    page = "home";
   }
   async function loadLibrary() {
     const epoch = ++libraryEpoch;
@@ -1871,15 +1968,15 @@
 />
 <div class="app-shell" inert={libraryMutation}>
   <aside class="sidebar">
-    <button
-      class="brand"
-      onclick={() => navigate("all")}
-      aria-label="SlopLauncher library"
+    <button class="brand" onclick={showHome} aria-label="SlopLauncher Home"
       ><span class="brand-mark"><AppLogo /></span><span
         >slop<span class="brand-light">launcher</span></span
       ></button
     >
     <nav class="primary-nav" aria-label="Main navigation">
+      <button class:nav-active={page === "home"} onclick={showHome}
+        ><House size={19} /><span>Home</span></button
+      >
       <button
         class:nav-active={page === "library" && filter === "all"}
         onclick={() => navigate("all")}
@@ -2028,19 +2125,25 @@
           <button
             class="library-back-button"
             onclick={closeDetails}
-            title="Return to your library"
-            ><ArrowLeft size={15} />Library</button
+            title={detailsOrigin === "home"
+              ? "Return to Home"
+              : "Return to your library"}
+            ><ArrowLeft size={15} />{detailsOrigin === "home"
+              ? "Home"
+              : "Library"}</button
           >
         {:else}<span>Your space</span>{/if}<ChevronRight size={13} /><span
           >{selected
             ? selected.title
-            : page === "setup"
-              ? "Setup"
-              : page === "settings"
-                ? "Settings"
-                : page === "sources"
-                  ? "Sources"
-                  : title}</span
+            : page === "home"
+              ? "Home"
+              : page === "setup"
+                ? "Setup"
+                : page === "settings"
+                  ? "Settings"
+                  : page === "sources"
+                    ? "Sources"
+                    : title}</span
         >
       </div>
       <div class="topbar-actions">
@@ -2726,6 +2829,37 @@
           </div>
         </div>
       </main>
+    {:else if page === "home"}
+      <HomeScreen
+        shelves={homeShelves}
+        cardWidth={Math.max(
+          120,
+          Math.min(
+            220,
+            Math.round(
+              settings.coverSize * (settings.comfortableLibrary ? 1 : 0.75),
+            ),
+          ),
+        )}
+        {ready}
+        error={loadError}
+        draggable={!demoMode}
+        onorder={saveHomeOrder}
+        onbrowse={browseHomeShelf}
+        onopen={openGame}
+        onfavorite={favorite}
+        onhide={hideGame}
+        onlaunch={launch}
+        oncontext={showGameContext}
+        versionCount={(game) =>
+          settings.hideDuplicateGames
+            ? versionsIndex.versions(game.id).length
+            : game.copies.length}
+        onsources={showSources}
+        initialTop={homeScrolls.get("__home__") ?? 0}
+        scrolls={homeScrolls}
+        onscroll={(top) => homeScrolls.set("__home__", top)}
+      />
     {:else}
       <main
         class="library-page"
@@ -2740,17 +2874,19 @@
               >
             </h1>
             <p class="library-subtitle">
-              {isCollectionFilter(filter)
-                ? "A collection from across your library."
-                : filter === "all"
-                  ? `${installedCount} installed · ${sources.filter((s) => browsableGames.some((g) => g.copies.some((c) => c.source === s))).length} sources`
-                  : filter === "favorites"
-                    ? "The ones you keep coming back to."
-                    : filter === "recent"
-                      ? "Games with confirmed play history."
-                      : filter === "hidden"
-                        ? "Use the eye on a cover to return a game to your library."
-                        : `Your ${sourceNames[filter]} collection`}
+              {homeShelfFilter
+                ? homeShelves.find((s) => s.id === homeShelfFilter)?.description
+                : isCollectionFilter(filter)
+                  ? "A collection from across your library."
+                  : filter === "all"
+                    ? `${installedCount} installed · ${sources.filter((s) => browsableGames.some((g) => g.copies.some((c) => c.source === s))).length} sources`
+                    : filter === "favorites"
+                      ? "The ones you keep coming back to."
+                      : filter === "recent"
+                        ? "Games with confirmed play history."
+                        : filter === "hidden"
+                          ? "Use the eye on a cover to return a game to your library."
+                          : `Your ${sourceNames[filter]} collection`}
             </p>
             {#if activeCollection}<button
                 class="text-button collection-edit-button"

@@ -116,6 +116,8 @@ struct VersionPreference {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Settings {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    home_row_order: Vec<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     hide_duplicate_games: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +152,7 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            home_row_order: vec![],
             hide_duplicate_games: false,
             preferred_source: None,
             version_preferences: Default::default(),
@@ -532,6 +535,7 @@ fn store_enrichment(games: &[Game], db: &mut Connection) -> Result<(), String> {
     tx.commit().map_err(err)
 }
 fn validate_settings(settings: &Settings) -> Result<(), String> {
+    if settings.home_row_order.len()>512 || settings.home_row_order.iter().any(|id|id.is_empty()||id.len()>512||id.chars().any(char::is_control)) || settings.home_row_order.iter().collect::<std::collections::HashSet<_>>().len()!=settings.home_row_order.len(){return Err("Invalid Home shelf order".into());}
     if settings
         .preferred_source
         .as_deref()
@@ -1332,6 +1336,17 @@ mod tests {
                 .unwrap(),
             1
         );
+    }
+    #[test]
+    fn home_shelf_order_roundtrips_and_rejects_duplicate_rows() {
+        let db=db_open(Path::new(":memory:")).unwrap();
+        let mut settings=Settings::default();
+        assert!(settings.home_row_order.is_empty());
+        settings.home_row_order=vec!["long".into(),"activity".into(),"collection:future".into()];
+        store_settings(&settings,&db).unwrap();
+        assert_eq!(read_settings(&db).unwrap().home_row_order,settings.home_row_order);
+        settings.home_row_order.push("long".into());assert!(store_settings(&settings,&db).is_err());
+        assert_eq!(read_settings(&db).unwrap().home_row_order.len(),3);
     }
     #[test]
     fn library_density_defaults_compact_and_roundtrips() {
