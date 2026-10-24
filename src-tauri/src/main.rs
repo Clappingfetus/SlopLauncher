@@ -27,7 +27,7 @@ use std::{
     sync::Mutex,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -138,6 +138,8 @@ struct Settings {
     show_hidden_games: bool,
     #[serde(default = "default_auto_fill")]
     auto_fill_gaps: bool,
+    #[serde(default = "default_library_sync_hours")]
+    library_sync_hours: u32,
     steam_id: String,
     #[serde(default)]
     library_folders: folders::LibraryFolders,
@@ -160,12 +162,14 @@ impl Default for Settings {
             start_installed: false,
             show_hidden_games: false,
             auto_fill_gaps: true,
+            library_sync_hours: default_library_sync_hours(),
             steam_id: String::new(),
             library_folders: Default::default(),
             emulators: vec![],
         }
     }
 }
+fn default_library_sync_hours() -> u32 { 6 }
 fn default_auto_fill() -> bool {
     true
 }
@@ -679,6 +683,7 @@ async fn scan_installed(
 }
 #[tauri::command]
 async fn cached_artwork(
+    app: tauri::AppHandle,
     url: String,
     thumbnail: Option<u32>,
     state: State<'_, AppState>,
@@ -694,11 +699,16 @@ async fn cached_artwork(
             return Ok(path);
         }
     }
+    // Disk hits are not downloads. Emit counts only, never artwork URLs or keys.
+    let downloading = artwork::find_cached(&url, &state.artwork_dir).is_none();
+    if downloading { let _ = app.emit("artwork-download", 1_i32); }
     let source = if url.starts_with("ss-art://") {
-        providers::screen_scraper_artwork(&url, &state).await?
+        providers::screen_scraper_artwork(&url, &state).await
     } else {
-        artwork::cached(&url, &state.artwork_dir, &state.client).await?
+        artwork::cached(&url, &state.artwork_dir, &state.client).await
     };
+    if downloading { let _ = app.emit("artwork-download", -1_i32); }
+    let source = source?;
     let (Some(width), Some(key)) = (thumbnail, key) else {
         return Ok(source);
     };
@@ -1247,10 +1257,13 @@ mod tests {
             serde_json::json!({"coverSize":176,"theme":"dark","startInstalled":false,"steamId":""});
         let mut settings: super::Settings = serde_json::from_value(legacy).unwrap();
         assert!(settings.auto_fill_gaps);
+        assert_eq!(settings.library_sync_hours, 6);
+        settings.library_sync_hours = 0;
         settings.auto_fill_gaps = false;
         let restored: super::Settings =
             serde_json::from_value(serde_json::to_value(settings).unwrap()).unwrap();
         assert!(!restored.auto_fill_gaps);
+        assert_eq!(restored.library_sync_hours, 0);
     }
     use super::*;
     #[test]

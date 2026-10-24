@@ -4,7 +4,7 @@
 2. Open **Sources**, or launch the skippable **Setup wizard** from Sources or Settings.
 3. Connect the stores you use. Follow each source's in-app instructions; enter credentials only into the intended native setup flow. Steam requires your own API key and SteamID64, and itch.io accepts your personal API key. Other sources have their own account authorization flows.
 4. Add installation folders as needed. Each source supports more than one folder. Owned-library imports and installed-game discovery are separate.
-5. In **Settings**, optionally connect IGDB, SteamGridDB, ScreenScraper, or RetroAchievements. These services may require developer credentials or an API key. Credentials are not supplied with the project.
+5. In **Settings**, optionally connect IGDB, SteamGridDB, or RetroAchievements. These services may require developer credentials or an API key. Credentials are not supplied with the project.
 6. Add manual or emulated games with **Add game**. Configure emulator profiles first; provide your own emulator executable, game files, and RetroArch core where required.
 
 ## Make the library yours
@@ -17,9 +17,15 @@ Use the eye on a cover to hide a game, then restore it in **Hidden Games**. Sett
 
 ## Metadata and artwork
 
-Native store covers are preferred in this order: Steam, GOG, Epic, Amazon, then SteamGridDB. Per-game artwork choices take priority. Automatic SteamGridDB gap filling does not apply to emulated games by default. ScreenScraper handles emulator-specific matching when configured.
+Native store covers are preferred in this order: Steam, GOG, Epic, Amazon, then SteamGridDB. Per-game artwork choices take priority. Automatic SteamGridDB gap filling does not apply to emulated games by default. ScreenScraper integration is planned but not implemented yet.
 
 Online lookup can be disabled in Settings. Missing matches or service failures do not remove your games. Manually correct a game's provider identity when necessary; data coverage is not guaranteed.
+
+## Background updates
+
+**Settings → Automatic library sync** checks connected stores every six hours by default. Choose hourly, every twelve hours, daily, or manual only. Successful sync times and one-hour failure cooldowns survive restarts. Use **Sync** in Sources for an immediate manual refresh.
+
+This schedule is separate from **Automatically fill missing artwork & metadata**. Provider retry times remain saved, and newly added or rematched games are evaluated automatically. The bottom bar labels library syncs, metadata/resource checks, and active artwork downloads separately. Loading a cached image is not shown as a download.
 
 ## Accounts and backups
 

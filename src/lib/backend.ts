@@ -1,3 +1,4 @@
+import { listen } from "@tauri-apps/api/event";
 import { currentResult } from "./enrichment-identity";
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
 import {
@@ -292,3 +293,10 @@ export const setArtworkWindow = (owner: unknown, requests: ArtworkRequest[]) =>
 export const clearArtworkWindow = (owner: unknown) =>
   artworkLoader.clearWindow(owner);
 export const artworkStats = () => artworkLoader.stats();
+
+export async function listenArtworkDownloads(update: (delta: number) => void) {
+  if (!desktop) return () => {};
+  return listen<number>("artwork-download", (event) => {
+    if (event.payload === 1 || event.payload === -1) update(event.payload);
+  });
+}

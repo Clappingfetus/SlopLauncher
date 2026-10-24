@@ -313,7 +313,9 @@
   let steamAchievementAccount = $derived(
     accountStates.find((a) => a.source === "steam"),
   );
+  let artworkDownloads = $state(0);
   const accountManager = new AccountManager(api, {
+    syncHours: () => settings.librarySyncHours,
     changed: (states) => (accountStates = states),
     enabled: () => api.desktop && ready && !demoMode,
     copyIds: () => new Set(games.flatMap((g) => g.copies.map((c) => c.id))),
@@ -1638,8 +1640,23 @@
       reconcileEnrichment();
       void accountManager.syncAll(true);
     }, 60_000);
-    void loadLibrary();
+    let disposed = false;
+    let stopArtwork: (() => void) | undefined;
+    void api
+      .listenArtworkDownloads((delta) => {
+        artworkDownloads = Math.max(0, artworkDownloads + delta);
+      })
+      .then((stop) => {
+        if (disposed) stop();
+        else stopArtwork = stop;
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!disposed) void loadLibrary();
+      });
     return () => {
+      disposed = true;
+      stopArtwork?.();
       clearTimeout(toastTimer);
       clearTimeout(enrichmentSaveTimer);
       clearTimeout(notesSaveTimer);
@@ -1964,6 +1981,32 @@
                   bind:value={settings.coverSize}
                   onchange={persistSettings}
                 />
+              </div>
+              <div class="setting-row">
+                <div>
+                  <strong>Automatic library sync</strong>
+                  <p>
+                    Check connected stores for newly owned games. The schedule
+                    survives restarts. Failed syncs wait at least one hour; Sync
+                    in Sources is always available.
+                  </p>
+                </div>
+                <select
+                  aria-label="Automatic library sync"
+                  value={settings.librarySyncHours ?? 6}
+                  onchange={(event) => {
+                    settings.librarySyncHours = Number(
+                      event.currentTarget.value,
+                    );
+                    persistSettings();
+                  }}
+                >
+                  <option value={0}>Manual only</option>
+                  <option value={1}>Every hour</option>
+                  <option value={6}>Every 6 hours</option>
+                  <option value={12}>Every 12 hours</option>
+                  <option value={24}>Daily</option>
+                </select>
               </div>
               <div class="setting-row">
                 <div>
@@ -2712,6 +2755,10 @@
     {#if ready && !demoMode && api.desktop}
       <EnrichmentStatus
         progress={enrichmentProgress}
+        syncing={accountStates
+          .filter((a) => a.phase === "syncing")
+          .map((a) => a.source)}
+        downloads={artworkDownloads}
         enabled={settings.autoFillGaps !== false}
         missing={gapCount}
       />

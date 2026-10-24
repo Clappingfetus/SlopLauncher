@@ -51,6 +51,7 @@ interface Hooks {
   enabled(): boolean;
   copyIds?: () => Set<string>;
   now?: () => number;
+  syncHours?: () => number | undefined;
 }
 export class AccountManager {
   private states = initialAccounts();
@@ -214,6 +215,20 @@ export class AccountManager {
       return false;
     }
   }
+  private due(a: AccountState) {
+    const configured = this.hooks.syncHours?.() ?? 6;
+    const hours = [0, 1, 6, 12, 24].includes(configured) ? configured : 6;
+    const now = this.time();
+    // Successful syncs and failure cooldowns survive restart in native storage.
+    // The local attempt guard also covers errors loading status after a failure.
+    return (
+      hours !== 0 &&
+      (!a.nextRetryAt || now >= a.nextRetryAt) &&
+      (!a.lastSync || now - a.lastSync >= hours * 3_600_000) &&
+      (!this.attempts.has(a.source) ||
+        now - this.attempts.get(a.source)! >= 3_600_000)
+    );
+  }
   async sync(source: AccountSource, automatic = false) {
     const a = this.state(source);
     const n = this.epoch(source);
@@ -222,7 +237,8 @@ export class AccountManager {
       !a.connected ||
       a.reconnectRequired ||
       a.phase !== "idle" ||
-      this.active.has(source)
+      this.active.has(source) ||
+      (automatic && !this.due(a))
     )
       return;
     this.active.add(source);
@@ -275,10 +291,7 @@ export class AccountManager {
         a.connected &&
         !a.reconnectRequired &&
         a.phase === "idle" &&
-        (!automatic ||
-          this.time() -
-            Math.max(a.lastSync ?? 0, this.attempts.get(a.source) ?? 0) >=
-            15 * 60_000),
+        (!automatic || this.due(a)),
     );
     for (let i = 0; i < due.length; i += 2)
       await Promise.allSettled(

@@ -42,6 +42,8 @@ struct Account {
     serial: String,
     revision: u64,
     last_sync: Option<u64>,
+    #[serde(default)]
+    next_retry_at: Option<u64>,
     owned_count: Option<usize>,
     reconnect_required: bool,
     error: Option<String>,
@@ -55,6 +57,7 @@ pub struct Status {
     account_id: Option<String>,
     revision: u64,
     last_sync: Option<u64>,
+    next_retry_at: Option<u64>,
     owned_count: Option<usize>,
     reconnect_required: bool,
     error: Option<String>,
@@ -68,6 +71,7 @@ fn view(source: &str, a: &Account) -> Status {
         account_id: (!a.account_id.is_empty()).then(|| a.account_id.clone()),
         revision: a.revision,
         last_sync: a.last_sync,
+        next_retry_at: a.next_retry_at,
         owned_count: a.owned_count,
         reconnect_required: a.reconnect_required,
         error: a.error.clone(),
@@ -1206,14 +1210,18 @@ pub async fn sync_account(
 ) -> Result<SyncResult, String> {
     let lock = state.accounts.lock(&source)?;
     let _guard = lock.lock().await;
-    let original = state.accounts.get(&source);
+    let mut original = state.accounts.get(&source);
     if !view(&source, &original).connected || original.revision != revision {
         return Err("This connection changed. Refresh Sources before syncing.".into());
     }
+    // Save before network I/O so closing/reopening after a failure cannot hammer a store.
+    // Explicit manual sync remains available; the frontend gates automatic retries.
+    original.next_retry_at = Some(now().saturating_add(60 * 60_000));
+    save_current(&state, &source, &original)?;
     let result:Result<SyncResult,String>=async {
         let mut a=refreshed(&source,&state,original.clone()).await?;
         let games=deduplicate(match source.as_str(){"steam"=>steam_games(&state,&a).await?,"epic"=>epic_games(&state,&a).await?,"amazon"=>amazon_games(&state,&a).await?,"gog"=>gog_games(&state,&a).await?,"itch"=>itch_games(&state,&a).await?,_=>return Err("Unknown account source".into())})?;
-        a.last_sync=Some(now());a.owned_count=Some(games.len());a.error=None;a.reconnect_required=false;save_current(&state,&source,&a)?;
+        a.last_sync=Some(now());a.next_retry_at=None;a.owned_count=Some(games.len());a.error=None;a.reconnect_required=false;save_current(&state,&source,&a)?;
         let fallback=games.iter().filter(|g|g.title==format!("{} game {}",match source.as_str(){"itch"=>"itch.io","gog"=>"GOG","epic"=>"Epic","amazon"=>"Amazon",_=>"Steam"},g.copies[0].source_id)).count();
         let messages=if fallback>0 {vec![format!("{fallback} owned games have temporary titles because store metadata was unavailable. A later sync will retry them.")]}else{vec![]};
         Ok(SyncResult{source:source.clone(),revision:a.revision,account:view(&source,&a),games,messages})
@@ -1443,6 +1451,7 @@ mod tests {
                         String::new()
                     },
                     last_sync: Some(12),
+                    next_retry_at: Some(3_600_012),
                     owned_count: Some(42),
                     ..Account::default()
                 };
@@ -1455,7 +1464,7 @@ mod tests {
             let runtime = Runtime::load(&db);
             assert!(SOURCES.iter().all(|source| {
                 let s = view(source, &runtime.get(source));
-                s.connected && !s.reconnect_required && s.owned_count == Some(42)
+                s.connected && !s.reconnect_required && s.owned_count == Some(42) && s.next_retry_at == Some(3_600_012)
             }));
             for source in SOURCES {
                 let a = runtime.get(source);

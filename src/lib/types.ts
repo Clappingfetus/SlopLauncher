@@ -237,6 +237,7 @@ export interface Settings {
   startInstalled: boolean;
   showHiddenGames?: boolean;
   autoFillGaps?: boolean;
+  librarySyncHours?: number;
   steamId: string;
   libraryFolders?: LibraryFolders;
   emulators?: EmulatorProfile[];
@@ -299,6 +300,7 @@ export interface AccountStatus {
   accountId?: string;
   revision: number;
   lastSync?: number;
+  nextRetryAt?: number;
   ownedCount?: number;
   reconnectRequired: boolean;
   error?: string;
@@ -329,6 +331,7 @@ export const defaultSettings: Settings = {
   startInstalled: false,
   showHiddenGames: false,
   autoFillGaps: true,
+  librarySyncHours: 6,
   steamId: "",
   libraryFolders: {},
 };

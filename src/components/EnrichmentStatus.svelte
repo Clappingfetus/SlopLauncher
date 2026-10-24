@@ -5,13 +5,21 @@
     Pause,
     CircleHelp,
   } from "@lucide/svelte";
+  import { sourceNames, type AccountSource } from "../lib/types";
   import type { EnrichmentProgress } from "../lib/enrichment";
   let {
     progress,
     enabled,
     missing,
-  }: { progress: EnrichmentProgress; enabled: boolean; missing: number } =
-    $props();
+    syncing = [],
+    downloads = 0,
+  }: {
+    progress: EnrichmentProgress;
+    enabled: boolean;
+    missing: number;
+    syncing?: AccountSource[];
+    downloads?: number;
+  } = $props();
   const names: Record<string, string> = {
     achievements: "Steam achievements",
     retroachievements: "RetroAchievements",
@@ -37,12 +45,20 @@
 
 <section
   class="enrichment-status"
-  class:working={active}
-  aria-label="Artwork and metadata search"
+  class:working={active || syncing.length > 0 || downloads > 0}
+  aria-label="Background activity"
 >
+  {#if syncing.length}<span class="activity-kind" role="status"
+      ><LoaderCircle size={14} class="spin" />Library sync · {syncing
+        .map((s) => sourceNames[s])
+        .join(", ")}</span
+    >{/if}
+  {#if downloads > 0}<span class="activity-kind" role="status"
+      >Artwork downloads · {downloads} active</span
+    >{/if}
   <div class="search-state" role="status" aria-live="polite">
     {#if active}<LoaderCircle size={14} class="spin" /><span
-        >Filling artwork & details <span class="request-count"
+        >Metadata & resource checks <span class="request-count"
           >{progress.completed}/{progress.total} checks</span
         ></span
       >
@@ -60,7 +76,7 @@
       >{/if}
   </div>
   {#if active}<progress
-      aria-label="Artwork and metadata checks"
+      aria-label="Metadata and resource checks"
       max={Math.max(1, progress.total)}
       value={progress.completed}
     ></progress>
@@ -74,8 +90,16 @@
 </section>
 
 <style>
+  .activity-kind {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-size: 11px;
+  }
   .enrichment-status {
     flex-shrink: 0;
+    flex-wrap: wrap;
     min-height: 35px;
     display: flex;
     align-items: center;

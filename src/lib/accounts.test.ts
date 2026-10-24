@@ -240,7 +240,7 @@ describe("account sync lifecycle", () => {
     expect(h.api.syncAccount).toHaveBeenCalledTimes(1);
     await h.manager.sync("epic");
     expect(h.api.syncAccount).toHaveBeenCalledTimes(2);
-    h.advance(900001);
+    h.advance(3_600_001);
     await h.manager.syncAll(true);
     expect(h.api.syncAccount).toHaveBeenCalledTimes(3);
   });
@@ -357,5 +357,61 @@ describe("owned-library merge", () => {
         "epic",
       )[0].title,
     ).toBe("Proper title");
+  });
+});
+
+describe("persistent automatic sync scheduling", () => {
+  it("restores a failure cooldown in a new manager while allowing manual refresh", async () => {
+    const saved = { ...account("epic"), nextRetryAt: 2_000_000 + 3_600_000 };
+    const h = harness([saved]);
+    await h.manager.load();
+    await h.manager.syncAll(true);
+    await h.manager.sync("epic", true);
+    expect(h.api.syncAccount).not.toHaveBeenCalled();
+    h.advance(3_600_000);
+    await h.manager.syncAll(true);
+    expect(h.api.syncAccount).toHaveBeenCalledTimes(1);
+    const reopened = harness([saved]);
+    await reopened.manager.load();
+    await reopened.manager.sync("epic");
+    expect(reopened.api.syncAccount).toHaveBeenCalledTimes(1);
+  });
+  it("defaults to six hours after a successful sync, even after reopening", async () => {
+    const h = harness([{ ...account("gog"), lastSync: 2_000_000 }]);
+    await h.manager.load();
+    h.advance(3_600_000);
+    await h.manager.syncAll(true);
+    expect(h.api.syncAccount).not.toHaveBeenCalled();
+    h.advance(5 * 3_600_000);
+    await h.manager.syncAll(true);
+    expect(h.api.syncAccount).toHaveBeenCalledTimes(1);
+  });
+  it("supports manual-only and a changed interval without disabling new imports", async () => {
+    const h = harness();
+    let hours = 0;
+    const manager = new AccountManager(h.api, {
+      changed: () => {},
+      imported: h.imported,
+      enabled: () => true,
+      now: () => 100_000_000,
+      syncHours: () => hours,
+    });
+    await manager.load();
+    await manager.syncAll(true);
+    expect(h.api.syncAccount).not.toHaveBeenCalled();
+    await manager.syncAll(false);
+    expect(h.imported).toHaveBeenCalledTimes(1);
+    manager.dispose();
+    hours = 1;
+    const reopened = new AccountManager(h.api, {
+      changed: () => {},
+      imported: h.imported,
+      enabled: () => true,
+      now: () => 100_000_000,
+      syncHours: () => hours,
+    });
+    await reopened.load();
+    await reopened.syncAll(true);
+    expect(h.imported).toHaveBeenCalledTimes(2);
   });
 });
