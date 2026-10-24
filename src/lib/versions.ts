@@ -1,3 +1,4 @@
+import { summarizeActivity, type ActivitySummary } from "./play-activity";
 import { ratingRows } from "./ratings";
 import type { Game, Copy, Settings } from "./types";
 import { currentResult, steamId } from "./enrichment-identity";
@@ -322,6 +323,7 @@ export function versionLibrary(
     return [...buckets.values()].map(choose);
   }
   const reviewGroups = new Map<string, ReturnType<typeof ratingRows>>();
+  const activityGroups = new Map<string, ActivitySummary | undefined>();
   const presentations = new WeakMap<Game, Game>();
   function withPresentation(game: Game): Game {
     const hit = presentations.get(game);
@@ -332,12 +334,17 @@ export function versionLibrary(
       rows = ratingRows(members(game.id));
       reviewGroups.set(key, rows);
     }
+    if (!activityGroups.has(key))
+      activityGroups.set(key, summarizeActivity(members(game.id)));
+    const activitySummary = activityGroups.get(key);
     const artwork = withArtwork(game);
     const previous = reviewPresentationCache.get(game);
     if (
       previous &&
       previous.cover === artwork.cover &&
       previous.hero === artwork.hero &&
+      JSON.stringify(previous.activitySummary) ===
+        JSON.stringify(activitySummary) &&
       JSON.stringify(previous.artworkFallbacks) ===
         JSON.stringify(artwork.artworkFallbacks) &&
       previous.reviewSummary?.every(
@@ -352,7 +359,7 @@ export function versionLibrary(
       presentations.set(game, previous);
       return previous;
     }
-    const shown = { ...artwork, reviewSummary: rows };
+    const shown = { ...artwork, reviewSummary: rows, activitySummary };
     reviewPresentationCache.set(game, shown);
     presentations.set(game, shown);
     return shown;

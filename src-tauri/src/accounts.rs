@@ -705,6 +705,8 @@ fn owned_game(source: &str, id: &str, title: &str, a: &Account) -> Game {
         notes: String::new(),
         added_at: now(),
         last_played: None,
+        steam_activity:None,
+        launcher_activity:None,
         preferred_copy: None,
         metadata_id: sid,
         metadata_locked: None,
@@ -776,12 +778,9 @@ async fn steam_games(state: &AppState, a: &Account) -> Result<Vec<Game>, String>
                 .as_u64()
                 .filter(|n| *n > 0 && *n <= u32::MAX as u64)
                 .ok_or("Steam returned an invalid game identity")?;
-            Ok(owned_game(
-                "steam",
-                &id.to_string(),
-                v["name"].as_str().unwrap_or(&format!("Steam game {id}")),
-                a,
-            ))
+            let mut game=owned_game("steam",&id.to_string(),v["name"].as_str().unwrap_or(&format!("Steam game {id}")),a);
+            if let Some(activity)=crate::play_activity::from_payload(v,&game.copies[0].id,&a.account_id,now()){game.steam_activity=Some(json!([activity]));}
+            Ok(game)
         })
         .collect()
 }
@@ -1618,4 +1617,34 @@ mod tests {
             "Title"
         );
     }
+}
+
+/// Lightweight history refresh: two account-level requests, no catalog/artwork fan-out.
+#[tauri::command]
+pub async fn sync_steam_history(force:bool,state:State<'_,AppState>,app:tauri::AppHandle)->Result<crate::play_activity::HistorySync,String>{
+    let lock=state.accounts.lock("steam")?;let _guard=lock.lock().await;
+    let account=state.accounts.get("steam");if !view("steam",&account).connected{return Err("Connect Steam in Sources to import play history".into());}
+    let key=format!("steam-history:{}",account.account_id);let at=now();
+    if !force {let db=state.db.lock().map_err(|_|"History cache is busy")?;let saved=db.query_row("SELECT data FROM preferences WHERE key=?1",[&key],|r|r.get::<_,String>(0)).ok().and_then(|s|serde_json::from_str::<Value>(&s).ok());if let Some(next)=saved.and_then(|v|v["nextCheckAt"].as_u64()).filter(|n|*n>at){return Ok(crate::play_activity::HistorySync{account_id:account.account_id,revision:account.revision,updates:vec![],next_check_at:next,warning:None});}}
+    {let db=state.db.lock().map_err(|_|"History cache is busy")?;db.execute("INSERT OR REPLACE INTO preferences(key,data) VALUES(?1,?2)",params![key,json!({"nextCheckAt":at+300_000}).to_string()]).map_err(|_|"Could not schedule history retry")?;}
+    let (owned,recent)=futures_util::future::join(
+        response(state.client.get("https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/").query(&[("key",account.steam_key.as_str()),("steamid",account.account_id.as_str()),("include_appinfo","0"),("include_played_free_games","1")])),
+        response(state.client.get("https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/").query(&[("key",account.steam_key.as_str()),("steamid",account.account_id.as_str()),("count","0")]))
+    ).await;
+    ensure_current(&state,"steam",&account)?;
+    let owned=owned.and_then(|v|crate::play_activity::parse_games(&v,false));let recent=recent.and_then(|v|crate::play_activity::parse_games(&v,true));
+    if (owned.is_err()&&recent.is_err()) || (owned.is_err()&&recent.as_ref().is_ok_and(|rows|rows.is_empty())){return Err("Steam play history is unavailable. Check game-details visibility or retry later; saved history has been kept.".into());}
+    let warning=if owned.is_err()||recent.is_err(){Some("Some Steam activity is unavailable. Saved values were kept where possible.".into())}else{None};
+    let next=now()+if warning.is_some(){300_000}else{900_000};
+    let account_id=account.account_id.clone();let revision=account.revision;
+    tauri::async_runtime::spawn_blocking(move||{
+        use tauri::Manager;
+        let state=app.state::<AppState>();
+        if state.accounts.get("steam").revision!=revision{return Err("Steam connection changed during history refresh".into());}
+        let mut db=state.db.lock().map_err(|_|"History cache is busy")?;
+        let updates=crate::play_activity::apply_history(&mut db,&account_id,owned.as_ref().ok(),recent.as_ref().ok(),now())?;
+        db.execute("INSERT OR REPLACE INTO preferences(key,data) VALUES(?1,?2)",params![key,json!({"nextCheckAt":next}).to_string()]).map_err(|_|"Could not save history refresh time")?;
+        Ok(crate::play_activity::HistorySync{account_id,revision,updates,next_check_at:next,warning})
+    }).await.map_err(|_|"Steam history worker failed".to_string())?
+
 }

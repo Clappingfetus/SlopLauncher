@@ -1,3 +1,4 @@
+import { recentSortAt } from "./play-activity";
 import type { Game, GameCollection } from "./types";
 import { mainExtraHours, releaseSpan } from "./game-facts";
 export interface HomeShelf {
@@ -45,8 +46,14 @@ export function buildHomeShelves(
   collectionGames?: Map<string, Game[]>,
 ): HomeShelf[] {
   const played = games
-    .filter((g) => g.lastPlayed && g.lastPlayed <= now)
-    .sort((a, b) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0) || byTitle(a, b));
+    .filter((g) => {
+      const date = recentSortAt(g);
+      return date && date <= now;
+    })
+    .sort(
+      (a, b) =>
+        (recentSortAt(b) ?? 0) - (recentSortAt(a) ?? 0) || byTitle(a, b),
+    );
   const added = [...games].sort(
     (a, b) => b.addedAt - a.addedAt || byTitle(a, b),
   );
@@ -71,7 +78,7 @@ export function buildHomeShelves(
     {
       id: "played",
       title: "Recently Played",
-      description: "Pick up where you left off",
+      description: "Latest Steam and SlopLauncher activity",
       games: played,
     },
     {

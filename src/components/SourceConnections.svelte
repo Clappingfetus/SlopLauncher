@@ -28,8 +28,14 @@
     canConnect = desktop,
     folders = {},
     onFoldersChange,
+    onSteamHistory,
+    steamHistoryBusy = false,
+    steamHistoryMessage = "",
   }: {
     games: Game[];
+    onSteamHistory?: () => void;
+    steamHistoryBusy?: boolean;
+    steamHistoryMessage?: string;
     only?: AccountSource;
     accounts: AccountState[];
     manager: AccountManager;
@@ -117,7 +123,9 @@
 
 {#if !only}
   <div class="account-toolbar">
-    <span>Checks connected libraries for new games every 15 minutes.</span>
+    <span
+      >Connected libraries follow your background sync interval in Settings.</span
+    >
     <button
       class="secondary-button"
       disabled={disabled || !canConnect || !accounts.some((a) => a.connected)}
@@ -166,6 +174,14 @@
             ? "Connect your itch.io API key to import purchases, claims, and games from owned bundles."
             : `Sign in to ${sourceNames[source]} in your browser to import your complete owned collection.`}
       </p>
+      {#if source === "steam"}<p class="field-hint">
+          Steam play history refreshes every 15 minutes when background sync is
+          enabled. You can refresh it manually at any time. SlopLauncher keeps
+          its own launch history.
+        </p>
+        {#if steamHistoryMessage}<p class="field-hint" role="status">
+            {steamHistoryMessage}
+          </p>{/if}{/if}
       <ConnectionHelp service={source} expanded={!!only} />
       {#if account.connected}
         <div class="account-summary">
@@ -194,6 +210,14 @@
         >
         <div class="account-actions">
           {#if account.connected}
+            {#if source === "steam" && onSteamHistory}<button
+                class="text-button"
+                disabled={disabled || busy || steamHistoryBusy}
+                onclick={onSteamHistory}
+                >{steamHistoryBusy
+                  ? "Refreshing history…"
+                  : "Refresh play history"}</button
+              >{/if}
             <button
               class="text-button"
               disabled={disabled ||

@@ -117,7 +117,11 @@ See [security and publication boundaries](SECURITY.md). Do not attach database f
 
 ## Project status
 
-Current source: **0.9.44**. Recent work includes consensus rating groups, cross-store personal flags, Amazon portrait artwork handling, and duplicate grouping in Hidden Games.
+Current source: **0.9.45**.
+
+Steam activity imports last-played dates, lifetime hours, and two-week playtime using your connected account. SlopLauncher keeps separate local launch dates and counts; Recently Played can show either history or both. Automatic history refresh runs every 15 minutes while background sync is enabled, with a manual refresh in Sources. Steam game-details privacy can limit the data returned. Local counts record successful launch requests, not measured session durations.
+
+Recent work includes consensus rating groups, cross-store personal flags, Amazon portrait artwork handling, and duplicate grouping in Hidden Games.
 
 Next priorities include testing on clean Windows installations, more robust store integrations, and signed distribution. Performance is a design priority, not a hardware-independent benchmark claim.
 

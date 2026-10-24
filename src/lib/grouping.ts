@@ -1,3 +1,4 @@
+import { lastPlayedAt, recentSortAt } from "./play-activity";
 import { consensusScore } from "./ratings";
 import type {
   Game,
@@ -214,7 +215,7 @@ function facts(game: Game, now: number, needed: Set<RuleField>): Facts {
     rating: needed.has("rating") ? consensusScore(game) : undefined,
     hltb: needed.has("hltb") ? mainExtraHours(game) : undefined,
     release: needed.has("release") ? releaseSpan(game) : undefined,
-    played: needed.has("played") ? time(game.lastPlayed) : undefined,
+    played: needed.has("played") ? time(lastPlayedAt(game)) : undefined,
     added: needed.has("added") ? time(game.addedAt) : undefined,
   };
 }
@@ -390,7 +391,7 @@ export function groupGames(
       add(`${mode}:${bucket}`, name, game, bucket);
       continue;
     }
-    const date = mode === "played" ? game.lastPlayed : game.addedAt;
+    const date = mode === "played" ? recentSortAt(game) : game.addedAt;
     const value =
       date && Number.isFinite(date) && date > 0 && date <= now
         ? date

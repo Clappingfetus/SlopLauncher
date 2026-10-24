@@ -1,5 +1,7 @@
 <script lang="ts">
   import { steamId } from "./lib/enrichment-identity";
+  import PlayActivity from "./components/PlayActivity.svelte";
+  import { applySteamHistory, type ActivitySource } from "./lib/play-activity";
   import ReviewRatings from "./components/ReviewRatings.svelte";
   import { needsAmazonPortraitRefresh } from "./lib/store-artwork";
   import { version as appVersion } from "../package.json";
@@ -143,6 +145,7 @@
     installedOnly = $state(false),
     tagFilter = $state(""),
     sourceFilter = $state(""),
+    activitySource = $state<ActivitySource>("all"),
     homeShelfFilter = $state<string | null>(null),
     sort = $state("title"),
     showFilters = $state(false);
@@ -326,6 +329,8 @@
           `${sourceNames[result.source]} synced · ${result.games.length} owned${added ? ` · ${added} added` : ""}.`,
         );
       if (result.messages.length) scanMessages = result.messages;
+      if (result.source === "steam")
+        void refreshSteamHistory(!automatic, false);
     },
   });
   let libraryScroll = $state(0),
@@ -480,6 +485,7 @@
       resolvedCollections,
       !!settings.showHiddenGames,
       sourceFilter,
+      activitySource,
     );
   });
   let filtered = $derived(
@@ -493,6 +499,8 @@
           sort,
           [],
           true,
+          "",
+          activitySource,
         )
       : matchingGames,
   );
@@ -507,8 +515,6 @@
       const members = versionsIndex.members(g.id);
       return {
         ...g,
-        lastPlayed:
-          Math.max(...members.map((m) => m.lastPlayed ?? 0)) || undefined,
         addedAt: Math.min(...members.map((m) => m.addedAt)),
       };
     });
@@ -1206,6 +1212,7 @@
   async function mutateBlacklist(restore: boolean, ids: string[]) {
     if (libraryMutation || demoMode) return;
     if (notesSaveTimer) persist();
+    libraryEpoch++;
     libraryMutation = true;
     // Stop background producers before waiting for the ordered persistence tail.
     ready = false;
@@ -1246,6 +1253,7 @@
     } finally {
       ready = true;
       libraryMutation = false;
+      if (restore) void refreshSteamHistory(true, false);
     }
   }
   $effect(() => {
@@ -1346,6 +1354,7 @@
     query = "";
     tagFilter = "";
     sourceFilter = "";
+    activitySource = "all";
     window.history.replaceState({}, "");
   }
   function closeDetails() {
@@ -1623,6 +1632,7 @@
       persist();
       notify(`Found ${report.games.length} installed game records.`);
       void refreshUninstalls(true);
+      void refreshSteamHistory();
     } catch (e) {
       notify(String(e), true);
     } finally {
@@ -1686,6 +1696,60 @@
       if (showErrors) throw e;
     }
   }
+  let historyRefreshing = $state(false),
+    historyNext = 0;
+  let historyProfile = 0;
+  let historyMessage = $state("");
+  async function refreshSteamHistory(force = false, announce = force) {
+    const account = steamAchievementAccount;
+    if (account?.revision !== historyProfile) {
+      historyNext = 0;
+      historyProfile = account?.revision ?? 0;
+    }
+    if (
+      !api.desktop ||
+      !ready ||
+      demoMode ||
+      libraryMutation ||
+      historyRefreshing ||
+      !account?.connected ||
+      account.reconnectRequired ||
+      (!force && (settings.librarySyncHours === 0 || Date.now() < historyNext))
+    )
+      return;
+    historyRefreshing = true;
+    const epoch = libraryEpoch;
+    try {
+      await persistence;
+      const result = await api.syncSteamHistory(force);
+      if (
+        epoch !== libraryEpoch ||
+        demoMode ||
+        libraryMutation ||
+        !steamAchievementAccount?.connected ||
+        steamAchievementAccount.revision !== result.revision
+      )
+        return;
+      historyNext = result.nextCheckAt;
+      games = applySteamHistory(games, result.updates);
+      historyMessage = result.warning ?? "Steam play history is up to date.";
+      if (announce) notify(historyMessage, !!result.warning);
+    } catch (error) {
+      historyNext = Date.now() + 300000;
+      historyMessage = String(error);
+      if (announce) notify(historyMessage, true);
+    } finally {
+      historyRefreshing = false;
+      if (
+        (epoch !== libraryEpoch ||
+          account.revision !== steamAchievementAccount?.revision) &&
+        ready &&
+        !libraryMutation &&
+        !demoMode
+      )
+        void refreshSteamHistory(true, false);
+    }
+  }
   async function launch(g: Game) {
     if (busy) return;
     if (demoMode) {
@@ -1711,10 +1775,16 @@
         );
       const copy = preferredCopy(g);
       if (!copy) throw new Error("No launch copy is configured.");
-      const message = await api.launchGame(g.id, copy.id);
+      const result = await api.launchGame(g.id, copy.id);
       if (epoch !== libraryEpoch || demoMode) return;
       installWatch.start(g, copy);
-      notify(message); /* A launch request does not prove a play session. */
+      if (result.launcherActivity)
+        games = games.map((game) =>
+          game.id === g.id
+            ? { ...game, launcherActivity: result.launcherActivity }
+            : game,
+        );
+      notify(result.historyWarning ?? result.message, !!result.historyWarning);
     } catch (e) {
       notify(String(e), true);
     } finally {
@@ -1899,6 +1969,7 @@
               ? accountManager.sync("amazon", true)
               : Promise.resolve();
             await Promise.allSettled([repair, accountManager.syncAll(true)]);
+            void refreshSteamHistory();
           })
           .catch((e) => notify(`Connections could not load: ${e}`, true));
         if (!games.length) void scan();
@@ -1921,6 +1992,7 @@
       void refreshInstalls();
       reconcileEnrichment();
       void accountManager.syncAll(true);
+      void refreshSteamHistory();
     }, 60_000);
     let disposed = false;
     let stopArtwork: (() => void) | undefined;
@@ -1960,10 +2032,12 @@
     void refreshInstalls();
     reconcileEnrichment();
     void accountManager.syncAll(true);
+    void refreshSteamHistory();
   }}
   ononline={() => {
     reconcileEnrichment();
     void accountManager.syncAll(true);
+    void refreshSteamHistory();
   }}
 />
 <div class="app-shell" inert={libraryMutation}>
@@ -2198,6 +2272,9 @@
           {games}
           accounts={accountStates}
           manager={accountManager}
+          onSteamHistory={() => void refreshSteamHistory(true)}
+          steamHistoryBusy={historyRefreshing}
+          steamHistoryMessage={historyMessage}
           disabled={demoMode || !!busy || !ready}
           steamId={settings.steamId}
           folders={settings.libraryFolders ?? {}}
@@ -2604,6 +2681,13 @@
                   openModal("metadata");
                 }}
               />
+              <PlayActivity
+                game={selected}
+                refreshing={historyRefreshing}
+                onrefresh={steamAchievementAccount?.connected && !demoMode
+                  ? () => void refreshSteamHistory(true)
+                  : undefined}
+              />
               <section class="about-section">
                 <h2>About the game</h2>
                 <p>
@@ -2922,8 +3006,11 @@
               onclick={() => (showFilters = !showFilters)}
               ><SlidersHorizontal
                 size={14}
-              />Filters{#if tagFilter || sourceFilter}<span class="filter-count"
-                  >{Number(!!tagFilter) + Number(!!sourceFilter)}</span
+              />Filters{#if tagFilter || sourceFilter || activitySource !== "all"}<span
+                  class="filter-count"
+                  >{Number(!!tagFilter) +
+                    Number(!!sourceFilter) +
+                    Number(activitySource !== "all")}</span
                 >{/if}</button
             >
           </div>
@@ -2980,6 +3067,15 @@
                   >{/each}</select
               ></label
             >
+            {#if filter === "recent"}<label
+                >Activity history<select
+                  aria-label="Activity history"
+                  bind:value={activitySource}
+                  ><option value="all">Steam + SlopLauncher</option><option
+                    value="steam">Steam only</option
+                  ><option value="launcher">SlopLauncher only</option></select
+                ></label
+              >{/if}
             <label
               >Tag<select aria-label="Tag" bind:value={tagFilter}
                 ><option value="">All tags</option>{#each tags as g}<option
@@ -2996,11 +3092,12 @@
                 bind:value={settings.coverSize}
                 onchange={persistSettings}
               /></label
-            >{#if tagFilter || sourceFilter}<button
+            >{#if tagFilter || sourceFilter || activitySource !== "all"}<button
                 class="text-button"
                 onclick={() => {
                   tagFilter = "";
                   sourceFilter = "";
+                  activitySource = "all";
                 }}>Clear filters<X size={13} /></button
               >{/if}
           </div>{/if}
@@ -3122,6 +3219,7 @@
                     query = "";
                     tagFilter = "";
                     sourceFilter = "";
+                    activitySource = "all";
                     installedOnly = false;
                   }}>Clear filters</button
                 >{:else}<button

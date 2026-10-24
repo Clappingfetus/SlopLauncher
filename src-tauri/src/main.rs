@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod accounts;
+mod play_activity;
 mod banishment;
 mod ratings;
 mod achievements;
@@ -96,6 +97,10 @@ pub struct Game {
     pub notes: String,
     pub added_at: u64,
     pub last_played: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steam_activity:Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launcher_activity:Option<serde_json::Value>,
     pub preferred_copy: Option<String>,
     pub metadata_id: Option<u32>,
     pub metadata_locked: Option<bool>,
@@ -588,7 +593,10 @@ fn store_library(library: &Library, db: &mut Connection) -> Result<(), String> {
     }
     let tx = db.transaction().map_err(err)?;
     tx.execute_batch("CREATE TEMP TABLE IF NOT EXISTS incoming_ids(id TEXT PRIMARY KEY); DELETE FROM incoming_ids;").map_err(err)?;
-    for g in &library.games {
+    for original in &library.games {
+        let mut merged=original.clone();
+        if let Ok(raw)=tx.query_row("SELECT data FROM games WHERE id=?1",[&original.id],|r|r.get::<_,String>(0)){if let Ok(existing)=serde_json::from_str::<Game>(&raw){play_activity::preserve(&existing,&mut merged);}}
+        let g=&merged;
         if banishment::blocked(&tx,g) { continue; }
         if g.tags.len() > 64
             || g.tags.iter().any(|tag| {
@@ -835,6 +843,8 @@ fn add_manual(title: String, executable: String, steam_id: Option<u32>) -> Resul
         notes: String::new(),
         added_at: now(),
         last_played: None,
+        steam_activity:None,
+        launcher_activity:None,
         preferred_copy: None,
         metadata_id: steam_id,
         metadata_locked: None,
@@ -876,7 +886,14 @@ fn open_uri(_: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn launch_game(
+async fn launch_game(game_id:String,copy_id:String,state:State<'_,AppState>)->Result<play_activity::LaunchResult,String>{
+    let copy={let db=state.db.lock().map_err(err)?;let raw=db.query_row("SELECT data FROM games WHERE id=?1",[&game_id],|r|r.get::<_,String>(0)).map_err(|_|"Game not found")?;let game:Game=serde_json::from_str(&raw).map_err(err)?;game.copies.into_iter().find(|c|c.id==copy_id).ok_or("Game copy not found")?};
+    let message=send_launch_request(game_id.clone(),copy_id.clone(),state.clone()).await?;
+    let activity=if copy.installed {play_activity::record_launch(&*state.db.lock().map_err(err)?,&game_id,&copy_id,&copy.source,&copy.source_id)}else{Ok(None)};
+    let (launcher_activity,history_warning)=match activity{Ok(a)=>(a,None),Err(_)=>(None,Some("Launch request sent, but launcher activity could not be saved".into()))};
+    Ok(play_activity::LaunchResult{message,launcher_activity,history_warning})
+}
+async fn send_launch_request(
     game_id: String,
     copy_id: String,
     state: State<'_, AppState>,
@@ -1161,7 +1178,8 @@ fn main() {
             accounts::disconnect_account,
             accounts::connect_steam_account,
             accounts::connect_itch_account,
-            accounts::sync_account
+            accounts::sync_account,
+            accounts::sync_steam_history
         ])
         .run(tauri::generate_context!())
         .expect("Could not start SlopLauncher");

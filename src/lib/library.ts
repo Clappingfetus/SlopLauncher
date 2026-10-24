@@ -1,3 +1,8 @@
+import {
+  recentSortAt,
+  mergeSteamActivity,
+  type ActivitySource,
+} from "./play-activity";
 import { consensusScore } from "./ratings";
 import type { AccountSource, Game, GameCollection, Source } from "./types";
 import { isCollectionFilter, type CollectionFilter } from "./collections";
@@ -27,6 +32,7 @@ export function filterGames(
   collections: GameCollection[] = [],
   showHiddenGames = false,
   source = "",
+  activitySource: ActivitySource = "all",
 ): Game[] {
   const members = isCollectionFilter(filter)
     ? new Set(collections.find((c) => c.id === filter.slice(11))?.gameIds ?? [])
@@ -40,7 +46,7 @@ export function filterGames(
     const matches =
       (filter === "all" ||
         filter === "hidden" ||
-        (filter === "recent" && !!g.lastPlayed) ||
+        (filter === "recent" && !!recentSortAt(g, activitySource)) ||
         (filter === "favorites" && g.favorite) ||
         (members?.has(g.id) ?? false) ||
         g.copies.some((c) => c.source === filter)) &&
@@ -68,7 +74,8 @@ export function filterGames(
               (sort.endsWith("-desc") ? -1 : 1)) ||
         a.title.localeCompare(b.title)
       : sort === "recent"
-        ? (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0) ||
+        ? (recentSortAt(b, activitySource) ?? 0) -
+            (recentSortAt(a, activitySource) ?? 0) ||
           a.title.localeCompare(b.title)
         : sort === "added"
           ? b.addedAt - a.addedAt
@@ -201,6 +208,8 @@ export function mergeOwnedLibrary(
         byCopy.set(copy.id, found);
       }
     }
+    if (source === "steam")
+      found.steamActivity = mergeSteamActivity(found, game.steamActivity ?? []);
     const sid = game.copies[0].sourceId;
     const placeholder = `${source === "itch" ? "itch.io" : source === "gog" ? "GOG" : source === "epic" ? "Epic" : source === "amazon" ? "Amazon" : "Steam"} game ${sid}`;
     const prior = found.storeMetadata?.find(

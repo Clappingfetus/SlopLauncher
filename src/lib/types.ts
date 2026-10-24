@@ -65,7 +65,12 @@ export interface Game {
   status: "unplayed" | "playing" | "completed" | "on-hold";
   notes: string;
   addedAt: number;
+  /** Legacy local play activity. Steam snapshots never overwrite this field. */
   lastPlayed?: number;
+  steamActivity?: import("./play-activity").SteamActivity[];
+  launcherActivity?: import("./play-activity").LauncherActivity;
+  /** Duplicate-aware presentation only; native persistence retains raw histories. */
+  activitySummary?: import("./play-activity").ActivitySummary;
   preferredCopy?: string;
   metadataId?: number;
   metadataLocked?: boolean;

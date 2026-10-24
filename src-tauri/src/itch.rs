@@ -120,6 +120,8 @@ pub(crate) fn game(v: &Value) -> Result<Option<Game>, String> {
         notes: String::new(),
         added_at: now(),
         last_played: None,
+        steam_activity:None,
+        launcher_activity:None,
         preferred_copy: None,
         metadata_id: None,
         metadata_locked: None,

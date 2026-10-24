@@ -30,6 +30,8 @@ pub(crate) fn base(id: String, title: String, copy: Copy) -> Game {
         notes: String::new(),
         added_at: now(),
         last_played: None,
+        steam_activity:None,
+        launcher_activity:None,
         preferred_copy: None,
         metadata_id: None,
         metadata_locked: None,

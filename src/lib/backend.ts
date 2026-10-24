@@ -1,3 +1,4 @@
+import type { HistorySync, LaunchResult } from "./play-activity";
 import {
   allowedGames,
   blacklistKeys,
@@ -254,7 +255,7 @@ export async function chooseExecutable(): Promise<string | null> {
 export async function launchGame(
   gameId: string,
   copyId: string,
-): Promise<string> {
+): Promise<LaunchResult> {
   if (!desktop) throw new Error("Open the desktop app to launch your games.");
   return invoke("launch_game", { gameId, copyId });
 }
@@ -410,4 +411,8 @@ export async function unbanishGames(ids: string[]): Promise<BanishResult> {
 export function forgetArtworkMemory() {
   artworkLoader.clear();
   artworkCatalog.reconcile([]);
+}
+
+export async function syncSteamHistory(force = false): Promise<HistorySync> {
+  return invoke("sync_steam_history", { force });
 }
