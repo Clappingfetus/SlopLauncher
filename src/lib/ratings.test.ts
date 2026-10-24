@@ -201,3 +201,19 @@ describe("review consensus", () => {
     queue.clear();
   });
 });
+
+it("selects the freshest valid duplicate rating and updates after removal or rematch", () => {
+  const older = add(game("older"), "steam", 70, 100);
+  const newer = add(game("newer"), "steam", 90, 100);
+  newer.enrichment!["reviews-steam"]!.checkedAt = 20;
+  const invalid = add(game("invalid"), "steam", 999, 100);
+  invalid.enrichment!["reviews-steam"]!.checkedAt = 30;
+  expect(consensus(ratingRows([older, newer, invalid]))?.score).toBe(9);
+  expect(consensus(ratingRows([older, invalid]))?.score).toBe(7);
+  expect(
+    consensus(ratingRows([older, { ...newer, title: "Rematched" }, invalid]))
+      ?.score,
+  ).toBe(7);
+  expect(ratingRows([invalid])[0].rating).toBeUndefined();
+  expect(ratingRows([invalid])[0].checkedAt).toBe(30);
+});

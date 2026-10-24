@@ -42,33 +42,35 @@ function recordsFor(game: Game) {
 }
 export function ratingRows(games: Game[]): RatingRow[] {
   return reviewSources.map((source) => {
-    const records = games
-      .map((game) => recordsFor(game).get(source))
-      .filter((r) => !!r);
-    const valid = records
-      .filter((r) => {
-        const v = r.data?.rating;
-        return (
-          v?.source === source &&
-          v.kind === (source === "opencritic" ? "critics" : "users") &&
-          v.scale > 0 &&
-          Number.isFinite(v.scale) &&
-          Number.isFinite(v.value) &&
-          v.value >= 0 &&
-          v.value <= v.scale &&
-          Number.isSafeInteger(v.count) &&
-          v.count > 0
-        );
-      })
-      .sort(
-        (a, b) =>
-          (b.dataCheckedAt ?? b.checkedAt) - (a.dataCheckedAt ?? a.checkedAt),
-      );
-    const record =
-      valid[0] ?? records.sort((a, b) => b.checkedAt - a.checkedAt)[0];
+    // Pick the newest valid score and newest status in one pass. A transient
+    // failure on another copy must not displace a still-valid cached score.
+    let valid: ReturnType<typeof currentResult>;
+    let latest: ReturnType<typeof currentResult>;
+    for (const game of games) {
+      const record = recordsFor(game).get(source);
+      if (!record) continue;
+      if (!latest || record.checkedAt > latest.checkedAt) latest = record;
+      const v = record.data?.rating;
+      if (
+        v?.source === source &&
+        v.kind === (source === "opencritic" ? "critics" : "users") &&
+        v.scale > 0 &&
+        Number.isFinite(v.scale) &&
+        Number.isFinite(v.value) &&
+        v.value >= 0 &&
+        v.value <= v.scale &&
+        Number.isSafeInteger(v.count) &&
+        v.count > 0 &&
+        (!valid ||
+          (record.dataCheckedAt ?? record.checkedAt) >
+            (valid.dataCheckedAt ?? valid.checkedAt))
+      )
+        valid = record;
+    }
+    const record = valid ?? latest;
     return {
       source,
-      rating: valid[0]?.data?.rating,
+      rating: valid?.data?.rating,
       checkedAt: record?.dataCheckedAt ?? record?.checkedAt,
       stale: record?.status === "unavailable",
       message: record?.message,

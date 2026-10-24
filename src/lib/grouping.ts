@@ -136,7 +136,10 @@ export function validateGroups(groups: SmartGroup[]): SmartGroup[] {
       conditionIds.add(c.id);
       if (["known", "unknown"].includes(c.op)) continue;
       if (c.field === "tags") {
-        if (!c.value?.trim() || c.value.length > 512)
+        if (
+          !c.value?.split(",").some((tag) => tagKey(tag)) ||
+          c.value.length > 512
+        )
           throw Error(`Enter tags for ${name}.`);
         continue;
       }

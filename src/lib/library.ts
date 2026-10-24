@@ -76,6 +76,7 @@ export function filterGames(
   );
 }
 export function mergeDiscovered(existing: Game[], incoming: Game[]): Game[] {
+  if (!incoming.length) return existing;
   const result = existing.map((g) => ({
     ...g,
     copies: g.copies.map((c) => ({ ...c })),
@@ -84,38 +85,50 @@ export function mergeDiscovered(existing: Game[], incoming: Game[]): Game[] {
     result.flatMap((g) => g.copies.map((c) => [c.id, g] as const)),
   );
   for (const game of incoming) {
-    const copy = game.copies[0];
-    if (!copy) continue;
-    const found = byCopy.get(copy.id);
-    if (!found) {
-      result.push(game);
-      for (const c of game.copies) byCopy.set(c.id, game);
+    if (!game.copies.length) continue;
+    // A scan may contain multiple copies, including copies already owned by
+    // separate records. Update each owner without merging personal game data.
+    const fallback = game.copies.map((c) => byCopy.get(c.id)).find(Boolean);
+    if (!fallback) {
+      const added = { ...game, copies: game.copies.map((c) => ({ ...c })) };
+      result.push(added);
+      for (const c of added.copies) byCopy.set(c.id, added);
       continue;
     }
-    found.copies = found.copies.map((c) =>
-      c.id === copy.id
+    const touched = new Set<Game>();
+    for (const copy of game.copies) {
+      const found = byCopy.get(copy.id) ?? fallback;
+      const old = found.copies.find((c) => c.id === copy.id);
+      const updated = old
         ? {
-            ...c,
+            ...old,
             ...copy,
-            executable: copy.executable ?? c.executable,
-            launchUrl: copy.launchUrl ?? c.launchUrl,
-            ownership: copy.ownership ?? c.ownership,
+            executable: copy.executable ?? old.executable,
+            launchUrl: copy.launchUrl ?? old.launchUrl,
+            ownership: copy.ownership ?? old.ownership,
             installSizeBytes:
               copy.installSizeBytes ??
-              (copy.installed && copy.installPath === c.installPath
-                ? c.installSizeBytes
+              (copy.installed && copy.installPath === old.installPath
+                ? old.installSizeBytes
                 : undefined),
             storePage:
               copy.storePage ??
-              (copy.source === c.source && copy.sourceId === c.sourceId
-                ? c.storePage
+              (copy.source === old.source && copy.sourceId === old.sourceId
+                ? old.storePage
                 : undefined),
           }
-        : c,
-    );
-    // Identity and user edits are retained; scanning only updates installation evidence.
-    if (!found.metadataLocked && game.cover) found.cover = game.cover;
-    if (!found.metadataLocked && game.hero) found.hero = game.hero;
+        : { ...copy };
+      found.copies = old
+        ? found.copies.map((c) => (c.id === copy.id ? updated : c))
+        : [...found.copies, updated];
+      byCopy.set(copy.id, found);
+      touched.add(found);
+    }
+    for (const found of touched) {
+      // Identity and user edits survive scans; only installation/art evidence changes.
+      if (!found.metadataLocked && game.cover) found.cover = game.cover;
+      if (!found.metadataLocked && game.hero) found.hero = game.hero;
+    }
   }
   return retainUnchanged(existing, result);
 }

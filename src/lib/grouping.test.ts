@@ -263,3 +263,14 @@ describe("one virtual viewport for grouped libraries", () => {
     expect(requests.length * 384 * 384 * 6).toBeLessThan(48 * 1024 * 1024);
   });
 });
+
+it("rejects tag conditions containing only separators", () => {
+  for (const op of ["hasAny", "hasAll", "hasNone"]) {
+    expect(() =>
+      validateGroups([group([rule("tags", op, " , , ")])]),
+    ).toThrow();
+    expect(
+      validateGroups([group([rule("tags", op, " , RPG, ")])]),
+    ).toHaveLength(1);
+  }
+});

@@ -50,7 +50,7 @@ describe("non-destructive discovery", () => {
     const result = mergeDiscovered(games, [late, late]);
     expect(result).toHaveLength(10001);
     expect(result[0]).toBe(games[0]);
-    expect(result.at(-1)).toBe(late);
+    expect(result.at(-1)).toEqual(late);
   });
   it("keeps locked blank metadata and untouched rows during owned-library sync", () => {
     const game = {
@@ -145,11 +145,65 @@ it("keeps the Hidden Games view independent of global visibility and supports la
   const games = demoGames();
   games[0].hidden = true;
   for (const show of [false, true]) {
-    expect(filterGames(games, "hidden", "", false, "", "title", [], show).map(g => g.id)).toEqual([games[0].id]);
+    expect(
+      filterGames(games, "hidden", "", false, "", "title", [], show).map(
+        (g) => g.id,
+      ),
+    ).toEqual([games[0].id]);
   }
-  const late = {...games[1], id: "late-hidden", hidden: true};
-  expect(filterGames([...games, late], "hidden", "", false, "", "title")).toHaveLength(2);
+  const late = { ...games[1], id: "late-hidden", hidden: true };
+  expect(
+    filterGames([...games, late], "hidden", "", false, "", "title"),
+  ).toHaveLength(2);
   games[0].hidden = false;
   expect(filterGames(games, "hidden", "", false, "", "title")).toEqual([]);
-  expect(filterGames([late], "hidden", "not-a-match", false, "", "title")).toEqual([]);
+  expect(
+    filterGames([late], "hidden", "not-a-match", false, "", "title"),
+  ).toEqual([]);
+});
+
+it("updates every discovered copy without duplicating owners or mutating scan input", () => {
+  const base = demoGames()[0];
+  const a = {
+    ...base,
+    id: "a",
+    notes: "Keep A",
+    copies: [{ ...base.copies[0], id: "copy-a", installed: false }],
+  };
+  const b = {
+    ...base,
+    id: "b",
+    notes: "Keep B",
+    copies: [{ ...base.copies[0], id: "copy-b", installed: false }],
+  };
+  const incoming = {
+    ...base,
+    copies: [
+      a.copies[0],
+      b.copies[0],
+      { ...base.copies[0], id: "late-copy" },
+    ].map((c) => ({ ...c, installed: true })),
+  };
+  const snapshot = structuredClone(incoming);
+  const result = mergeDiscovered([a, b], [incoming]);
+  expect(result).toHaveLength(2);
+  expect(result[0].copies.map((c) => c.id)).toEqual(["copy-a", "late-copy"]);
+  expect(result[1].copies.map((c) => c.id)).toEqual(["copy-b"]);
+  expect(result.every((g) => g.copies.every((c) => c.installed))).toBe(true);
+  expect(result.map((g) => g.notes)).toEqual(["Keep A", "Keep B"]);
+  expect(incoming).toEqual(snapshot);
+  expect(a.copies[0].installed).toBe(false);
+  const newlyAdded = mergeDiscovered(
+    [],
+    [
+      incoming,
+      {
+        ...incoming,
+        copies: incoming.copies.map((c) => ({ ...c, installed: false })),
+      },
+    ],
+  );
+  expect(newlyAdded[0].copies.every((c) => !c.installed)).toBe(true);
+  expect(incoming).toEqual(snapshot);
+  expect(mergeDiscovered(result, [incoming])).toBe(result);
 });
