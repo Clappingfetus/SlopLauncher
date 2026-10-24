@@ -1,6 +1,6 @@
 [package]
 name = "sloplauncher"
-version = "0.9.34"
+version = "0.9.35"
 description = "A quiet home for your games"
 authors = ["SlopLauncher"]
 edition = "2021"
