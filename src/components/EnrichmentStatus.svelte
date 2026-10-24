@@ -1,10 +1,4 @@
 <script lang="ts">
-  import {
-    CheckCircle2,
-    LoaderCircle,
-    Pause,
-    CircleHelp,
-  } from "@lucide/svelte";
   import { sourceNames, type AccountSource } from "../lib/types";
   import type { EnrichmentProgress } from "../lib/enrichment";
   let {
@@ -23,138 +17,182 @@
     catalog?: { total: number; prepared: number; working: boolean };
   } = $props();
   let active = $derived(progress.running + progress.queued > 0);
+  let metadataStatus = $derived(
+    active
+      ? `${progress.completed}/${progress.total}`
+      : !enabled
+        ? "Paused"
+        : missing
+          ? `${missing} gaps`
+          : "Complete",
+  );
+  let metadataDetail = $derived(
+    active
+      ? `${progress.completed} of ${progress.total} metadata and resource checks; ${missing} games with gaps`
+      : !enabled
+        ? "Automatic artwork and metadata search is off"
+        : missing
+          ? `${missing} games have gaps; waiting for a provider, match, or retry`
+          : "Artwork and metadata complete",
+  );
 </script>
 
-<section
-  class="enrichment-status"
-  class:working={active || syncing.length > 0 || downloads > 0}
-  aria-label="Background activity"
->
-  {#if syncing.length}<span class="activity-kind" role="status"
-      ><LoaderCircle size={14} class="spin" />Library sync · {syncing
-        .map((s) => sourceNames[s])
-        .join(", ")}</span
-    >{/if}
-  {#if downloads > 0}<span class="activity-kind" role="status"
-      >Artwork downloads · {downloads} active</span
-    >{/if}
-  <div class="search-state" role="status" aria-live="polite">
-    {#if active}<LoaderCircle size={14} class="spin" /><span
-        >Metadata & resource checks <span class="request-count"
-          >{progress.completed}/{progress.total} checks</span
-        ></span
+<section class="enrichment-status" aria-label="Background activity">
+  <div
+    class="activity-lane"
+    title={syncing.length
+      ? `Syncing ${syncing.map((s) => sourceNames[s]).join(", ")}`
+      : "No library sync running"}
+  >
+    <div class="lane-heading">
+      <span>Libraries</span><span class="lane-value"
+        >{syncing.length ? `${syncing.length} syncing` : "Idle"}</span
       >
-    {:else if !enabled}<Pause size={13} /><span
-        >Automatic artwork & details search off</span
-      >
-    {:else if !missing}<CheckCircle2 size={14} /><span
-        >Artwork & details complete</span
-      >
-    {:else}<CircleHelp size={14} /><span
-        >{missing}
-        {missing === 1 ? "game has" : "games have"} gaps
-        <span class="waiting">· waiting for a provider, match, or retry</span
-        ></span
-      >{/if}
+    </div>
+    <div class="lane-detail">
+      <span class:busy={syncing.length > 0} class="activity-dot"
+      ></span>Owned-library sync
+    </div>
   </div>
-  {#if active}<progress
-      aria-label="Metadata and resource checks"
-      max={Math.max(1, progress.total)}
-      value={progress.completed}
-    ></progress>
-  {/if}
-  <div class="activity-summary">
-    {#if active}<span class="remaining">{missing} games with gaps</span>{/if}
-    {#if catalog.total > catalog.prepared}<span
-        class="activity-kind cover-cache"
-        title="Prepares persistent thumbnails across your library without keeping all images in memory. Visible artwork has priority."
-        >{catalog.working ? "Preparing covers" : "Cover cache"} · {catalog.prepared}/{catalog.total}</span
-      >{/if}
+  <div
+    class="activity-lane"
+    title="Artwork downloads only; cached images are loaded from disk"
+  >
+    <div class="lane-heading">
+      <span>Downloads</span><span class="lane-value"
+        >{downloads ? `${downloads} active` : "Idle"}</span
+      >
+    </div>
+    <div class="lane-detail">
+      <span class:busy={downloads > 0} class="activity-dot"></span>Artwork
+    </div>
+  </div>
+  <div class="activity-lane" title={metadataDetail}>
+    <div class="lane-heading">
+      <span>Metadata</span><span class="lane-value">{metadataStatus}</span>
+    </div>
+    <div class="lane-detail">
+      <progress
+        class:inactive={!active}
+        aria-label="Metadata and resource checks"
+        aria-valuetext={metadataDetail}
+        max={Math.max(1, progress.total)}
+        value={active ? progress.completed : 0}
+      ></progress>
+    </div>
+  </div>
+  <div
+    class="activity-lane cover-cache"
+    title={catalog.total > catalog.prepared
+      ? `Preparing persistent cover thumbnails: ${catalog.prepared} of ${catalog.total}. Visible artwork has priority.`
+      : "Cover thumbnails are prepared on disk"}
+  >
+    <div class="lane-heading">
+      <span>Cover cache</span><span class="lane-value"
+        >{catalog.total ? `${catalog.prepared}/${catalog.total}` : "—"}</span
+      >
+    </div>
+    <div class="lane-detail">
+      <progress
+        aria-label="Cover cache preparation"
+        max={Math.max(1, catalog.total)}
+        value={catalog.prepared}
+      ></progress>
+    </div>
   </div>
 </section>
 
 <style>
-  .activity-kind {
+  /* Fixed tracks and permanent slots: activity changes never alter sibling positions.
+     Counts align to the right using tabular digits; long values stay in their track. */
+  .enrichment-status {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(
+        0,
+        1.2fr
+      ) minmax(0, 1.2fr);
+    gap: 24px;
+    padding: 8px 28px;
+    border-top: 1px solid var(--line);
+    background: var(--sidebar);
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .activity-lane {
+    min-width: 0;
+  }
+  .lane-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 12ch;
+    align-items: center;
+    height: 15px;
+    gap: 6px;
+  }
+  .lane-heading > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lane-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .lane-detail {
     display: flex;
     align-items: center;
     gap: 6px;
-    color: var(--text);
-    font-size: 11px;
-  }
-  .enrichment-status {
-    flex-shrink: 0;
-    flex-wrap: wrap;
-    min-height: 35px;
-    display: flex;
-    align-items: center;
-    gap: 18px;
-    border-top: 1px solid var(--line);
-    padding: 8px 28px;
-    background: var(--sidebar);
+    height: 12px;
+    margin-top: 4px;
     color: var(--faint);
-    font-size: 11px;
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
   }
-  .enrichment-status.working {
-    color: var(--muted);
-  }
-  .search-state {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-  }
-  .search-state :global(svg) {
+  .activity-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
     flex-shrink: 0;
-    color: var(--accent);
+    background: var(--line);
   }
-  .request-count {
-    margin-left: 8px;
-    color: var(--faint);
-    font-variant-numeric: tabular-nums;
+  .activity-dot.busy {
+    background: var(--accent);
   }
   progress {
-    width: 120px;
-    min-width: 60px;
-    height: 4px;
+    display: block;
+    width: 100%;
+    height: 3px;
     border: 0;
-    border-radius: 4px;
+    border-radius: 3px;
     overflow: hidden;
     background: var(--line);
     accent-color: var(--accent);
   }
   progress::-webkit-progress-bar {
     background: var(--line);
-    border-radius: 4px;
   }
   progress::-webkit-progress-value {
     background: var(--accent);
-    border-radius: 4px;
-    transition: width 0.2s;
   }
-  .activity-summary {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-    gap: 18px;
+  progress.inactive {
+    opacity: 0.45;
   }
-  .cover-cache {
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-  .remaining {
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-  }
-  @media (max-width: 1100px) {
-    .remaining,
-    .waiting {
-      display: none;
-    }
+  @media (max-width: 1200px) {
     .enrichment-status {
-      gap: 12px;
+      gap: 16px;
       padding-inline: 20px;
+    }
+    .lane-heading {
+      grid-template-columns: minmax(0, 1fr) 10ch;
+      font-size: 10px;
+    }
+  }
+  @media (max-width: 950px) {
+    .enrichment-status {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 24px;
     }
   }
 </style>
