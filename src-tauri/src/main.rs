@@ -682,6 +682,15 @@ async fn scan_installed(
     .map_err(err)
 }
 #[tauri::command]
+async fn artwork_catalog(urls: Vec<String>, state: State<'_, AppState>) -> Result<Vec<(String, String)>, String> {
+    if urls.len() > 128 { return Err("Artwork index batch too large".into()); }
+    let dir = state.artwork_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || urls.into_iter()
+        .filter(|url| artwork::allowed_url(url) || url.starts_with("ss-art://"))
+        .filter_map(|url| artwork::prepared(&url, &dir).map(|path| (url, path)))
+        .collect()).await.map_err(err)
+}
+#[tauri::command]
 async fn cached_artwork(
     app: tauri::AppHandle,
     url: String,
@@ -693,6 +702,9 @@ async fn cached_artwork(
         .transpose()?;
     if !url.starts_with("ss-art://") && !artwork::allowed_url(&url) {
         return Err("Artwork provider is not allowed".into());
+    }
+    if thumbnail == Some(256) {
+        if let Some(path) = artwork::prepared(&url, &state.artwork_dir) { return Ok(path); }
     }
     if let Some(ref key) = key {
         if let Some(path) = artwork::find_cached(key, &state.artwork_dir) {
@@ -720,8 +732,9 @@ async fn cached_artwork(
         .acquire_owned()
         .await
         .map_err(|_| "Artwork processor unavailable")?;
-    let dir = state.artwork_dir.clone();
+    let dir = if width == 256 { state.artwork_dir.join("library-thumbnails") } else { state.artwork_dir.clone() };
     tauri::async_runtime::spawn_blocking(move || {
+        std::fs::create_dir_all(&dir).map_err(|_| "Could not prepare thumbnail directory".to_string())?;
         let _permit = permit;
         artwork::thumbnail(std::path::Path::new(&source), &key, &dir, width)
     })
@@ -1100,6 +1113,7 @@ fn main() {
             save_theme,
             scan_installed,
             cached_artwork,
+            artwork_catalog,
             choose_executable,
             choose_library_folder,
             add_manual,

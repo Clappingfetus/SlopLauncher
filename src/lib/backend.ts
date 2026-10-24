@@ -1,3 +1,5 @@
+import { writable } from "svelte/store";
+import { ArtworkCatalog } from "./artwork-catalog";
 import { listen } from "@tauri-apps/api/event";
 import { currentResult } from "./enrichment-identity";
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
@@ -268,22 +270,51 @@ export async function manualGame(
   if (desktop) return invoke("add_manual", { title, executable, steamId });
   throw new Error("Add installed games from the desktop app.");
 }
-const artworkLoader = new ArtworkLoader({
+const artworkLoader: ArtworkLoader = new ArtworkLoader({
   resolve: async (url, thumbnail) =>
-    desktop
+    (thumbnail === 256 && artworkCatalog.peek(url)) ||
+    (desktop
       ? convertFileSrc(
           await invoke<string>("cached_artwork", {
             url,
             thumbnail: thumbnail || null,
           }),
         )
-      : url,
+      : url),
   decode: decodeArtwork,
 });
 if (typeof window !== "undefined")
   window.addEventListener("online", () => artworkLoader.reconnect());
+export const artworkCatalogState = writable({
+  total: 0,
+  prepared: 0,
+  working: false,
+});
+const artworkCatalog: ArtworkCatalog = new ArtworkCatalog({
+  lookup: async (urls) =>
+    (await invoke<[string, string][]>("artwork_catalog", { urls })).map(
+      ([url, path]): [string, string] => [url, convertFileSrc(path)],
+    ),
+  prepare: async (url) =>
+    convertFileSrc(
+      await invoke<string>("cached_artwork", { url, thumbnail: 256 }),
+    ),
+  foregroundBusy: () =>
+    artworkLoader.stats().active > 0 || artworkLoader.stats().queued > 0,
+  changed: () => artworkCatalogState.set(artworkCatalog.stats()),
+});
+export const setLibraryArtwork = (urls: string[]) => {
+  if (desktop) artworkCatalog.reconcile(urls);
+};
+export const invalidatePreparedArtwork = (url: string) =>
+  artworkCatalog.invalidate(url);
+if (desktop)
+  setInterval(() => {
+    void artworkCatalog.step();
+  }, 250);
 export const peekArtwork = (url: string, thumbnail = 0) =>
-  artworkLoader.peek(url, thumbnail);
+  artworkLoader.peek(url, thumbnail) ??
+  (thumbnail > 0 ? artworkCatalog.peek(url) : undefined);
 export const acquireArtwork = (url: string, thumbnail = 0, priority = 0) =>
   artworkLoader.acquire({ url, thumbnail, priority });
 export const retryArtwork = (url: string, thumbnail = 0) =>

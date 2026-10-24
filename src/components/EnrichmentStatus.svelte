@@ -13,12 +13,14 @@
     missing,
     syncing = [],
     downloads = 0,
+    catalog = { total: 0, prepared: 0, working: false },
   }: {
     progress: EnrichmentProgress;
     enabled: boolean;
     missing: number;
     syncing?: AccountSource[];
     downloads?: number;
+    catalog?: { total: number; prepared: number; working: boolean };
   } = $props();
   const names: Record<string, string> = {
     achievements: "Steam achievements",
@@ -55,6 +57,11 @@
     >{/if}
   {#if downloads > 0}<span class="activity-kind" role="status"
       >Artwork downloads · {downloads} active</span
+    >{/if}
+  {#if catalog.total > catalog.prepared}<span
+      class="activity-kind"
+      title="Prepares persistent thumbnails across your library without keeping all images in memory. Visible artwork has priority."
+      >{catalog.working ? "Preparing covers" : "Cover cache"} · {catalog.prepared}/{catalog.total}</span
     >{/if}
   <div class="search-state" role="status" aria-live="polite">
     {#if active}<LoaderCircle size={14} class="spin" /><span

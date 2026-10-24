@@ -1,7 +1,13 @@
 <script lang="ts">
   import type { Game } from "../lib/types";
   import { Gamepad2 } from "@lucide/svelte";
-  import { acquireArtwork, peekArtwork, retryArtwork } from "../lib/backend";
+  import {
+    acquireArtwork,
+    peekArtwork,
+    retryArtwork,
+    artworkCatalogState,
+    invalidatePreparedArtwork,
+  } from "../lib/backend";
   let {
     game,
     hero = false,
@@ -48,13 +54,14 @@
   }
   let key = $derived(JSON.stringify([url, thumbnail]));
   let failed = $derived(failure === key);
-  let display = $derived(
-    url
+  let display = $derived.by(() => {
+    void $artworkCatalogState;
+    return url
       ? resolved.key === key
         ? resolved.src
         : peekArtwork(url, thumbnail)
-      : "",
-  );
+      : "";
+  });
   $effect(() => {
     void reconnect;
     const current = url;
@@ -67,7 +74,7 @@
     request.promise
       .then((value) => {
         if (live) {
-          reveal = !alreadyVisible;
+          reveal = !alreadyVisible && !display;
           failure = "";
           resolved = { key: currentKey, src: value };
         }
@@ -106,7 +113,10 @@
     decoding="async"
     onerror={() => {
       failure = key;
-      if (url) retryArtwork(url, thumbnail);
+      if (url) {
+        invalidatePreparedArtwork(url);
+        retryArtwork(url, thumbnail);
+      }
       rejectCurrent();
     }}
   />{:else}<div class="cover-fallback" class:loading-art={url && !failed}>

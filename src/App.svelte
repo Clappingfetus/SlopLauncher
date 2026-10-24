@@ -59,6 +59,7 @@
   import { launchAction } from "./lib/launch-action";
   import GameMenu from "./components/GameMenu.svelte";
   import ArtworkPicker from "./components/ArtworkPicker.svelte";
+  import { artworkCatalogState } from "./lib/backend";
   import EnrichmentStatus from "./components/EnrichmentStatus.svelte";
   import Achievements from "./components/Achievements.svelte";
   import { createGapPolicy, gapProviderOrder, missingFields } from "./lib/gaps";
@@ -341,6 +342,15 @@
   let basePresentedGames = $derived(
     games.map((g) => presentCached(g, providers.revision)),
   );
+  $effect(() => {
+    api.setLibraryArtwork(
+      ready && !demoMode
+        ? basePresentedGames
+            .map((g) => g.cover)
+            .filter((url): url is string => !!url)
+        : [],
+    );
+  });
   let versionsIndex = $derived(
     resolveVersions(basePresentedGames, settings, true, providers.revision),
   );
@@ -1657,6 +1667,7 @@
     return () => {
       disposed = true;
       stopArtwork?.();
+      api.setLibraryArtwork([]);
       clearTimeout(toastTimer);
       clearTimeout(enrichmentSaveTimer);
       clearTimeout(notesSaveTimer);
@@ -2759,6 +2770,7 @@
           .filter((a) => a.phase === "syncing")
           .map((a) => a.source)}
         downloads={artworkDownloads}
+        catalog={$artworkCatalogState}
         enabled={settings.autoFillGaps !== false}
         missing={gapCount}
       />

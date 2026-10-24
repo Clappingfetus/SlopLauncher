@@ -27,6 +27,12 @@ Online lookup can be disabled in Settings. Missing matches or service failures d
 
 This schedule is separate from **Automatically fill missing artwork & metadata**. Provider retry times remain saved, and newly added or rematched games are evaluated automatically. The bottom bar labels library syncs, metadata/resource checks, and active artwork downloads separately. Loading a cached image is not shown as a download.
 
+## Large-library artwork
+
+The launcher builds a persistent thumbnail store for library covers in the background. **Preparing covers** shows progress. Prepared covers are indexed as local paths, so scrolling beyond the decoded RAM cache does not require another provider request or thumbnail lookup. Full-resolution artwork still loads for visible cards and details.
+
+Initial preparation requires time and disk space, especially when artwork must be downloaded. Visible image requests take priority. Small library thumbnails are kept separately from the disposable original-image cache and survive restarts; only a bounded set of decoded images stays in memory.
+
 ## Accounts and backups
 
 Connections persist across restarts on the same Windows account. Back up the application data directory while the app is closed. Windows-protected credentials are tied to the user/machine context and should not be treated as a portable sign-in backup. Never publish this folder or send it with a bug report.

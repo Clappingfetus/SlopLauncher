@@ -77,6 +77,19 @@ pub fn thumbnail_key(url: &str, width: u32) -> Result<String, String> {
     Ok(format!("thumbnail-v1:{width}:{url}"))
 }
 
+// Small base thumbnails have their own persistent store. Original-image LRU
+// cleanup must not destroy the prepared browsing layer for a large library.
+pub fn prepared(url: &str, dir: &Path) -> Option<String> {
+    let key = thumbnail_key(url, 256).ok()?;
+    let target = dir.join("library-thumbnails");
+    if let Some(path) = find_cached(&key, &target) { return Some(path); }
+    let old = find_cached(&key, dir)?;
+    std::fs::create_dir_all(&target).ok()?;
+    let destination = target.join(Path::new(&old).file_name()?);
+    std::fs::copy(&old, &destination).ok()?;
+    Some(destination.to_string_lossy().into())
+}
+
 // The source remains untouched for details/artwork selection. Work runs off the UI thread.
 pub fn thumbnail(source: &Path, key: &str, dir: &Path, width: u32) -> Result<String, String> {
     use image::{
@@ -209,6 +222,22 @@ pub fn trim_cache(dir: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn prepared_thumbnails_migrate_and_survive_original_cache_cleanup() {
+        let dir = std::env::temp_dir().join(format!("slop-catalog-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key = thumbnail_key("fixture", 256).unwrap();
+        let old = dir.join(format!("{}.png", cache_name(&key)));
+        std::fs::write(&old, b"fixture-bytes").unwrap();
+        let persistent = prepared("fixture", &dir).unwrap();
+        assert!(Path::new(&persistent).starts_with(dir.join("library-thumbnails")));
+        std::fs::remove_file(old).unwrap();
+        assert_eq!(prepared("fixture", &dir).unwrap(), persistent);
+        trim_cache(&dir);
+        assert!(Path::new(&persistent).is_file());
+        assert!(prepared("missing", &dir).is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn thumbnails_are_small_persistent_and_preserve_the_original() {
         let dir = std::env::temp_dir().join(format!("slop-art-{}", uuid::Uuid::new_v4()));
