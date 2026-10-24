@@ -34,6 +34,9 @@ export function resolveCollections(
   games: Game[],
   now = Date.now(),
 ): GameCollection[] {
+  // Several live collections can select different buckets from the same rule
+  // set. Evaluate that set once per resolution, but never cache across library
+  // snapshots or clock changes (relative-date rules must keep moving).
   const matches = new Map<string, Map<string, string[]>>();
   return collections.map((c) => {
     if (!c.rule) return c;

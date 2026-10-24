@@ -558,6 +558,9 @@ export class EnrichmentQueue {
         message: "Provider temporarily unavailable. A retry is scheduled.",
       };
     }
+    // Completion is not permission to apply: the user may have disconnected,
+    // deleted the game, or changed its provider match while the request ran.
+    // Preserve stale data only for the SAME identity after a transient failure.
     const current = this.current(job.game.id);
     if (
       this.enabled &&

@@ -239,3 +239,57 @@ describe("artwork lookahead", () => {
     ]).toEqual([256, 384, 512, 512]);
   });
 });
+
+it("settles replaced queued requests and permits a fresh retry", async () => {
+  let finish!: (src: string) => void;
+  const loader = new ArtworkLoader({
+    concurrency: 1,
+    resolve: (url) =>
+      url === "busy"
+        ? new Promise((r) => {
+            finish = r;
+          })
+        : Promise.resolve(url),
+    decode: async (src) => ({ src, bytes: 10 }),
+  });
+  const busy = loader.acquire(request("busy"));
+  const old = loader.acquire(request("retry"));
+  const rejected = expect(old.promise).rejects.toThrow("retry requested");
+  loader.retry("retry", 256);
+  await rejected;
+  const fresh = loader.acquire(request("retry"));
+  old.release();
+  finish("busy");
+  await busy.promise;
+  await expect(fresh.promise).resolves.toBe("retry");
+  fresh.release();
+  busy.release();
+});
+
+it("skips abandoned decodes but accepts a late consumer and replacement art", async () => {
+  const finish = new Map<string, (src: string) => void>();
+  const decoded: string[] = [];
+  const loader = new ArtworkLoader({
+    resolve: (url) => new Promise((r) => finish.set(url, r)),
+    decode: async (src) => {
+      decoded.push(src);
+      return { src, bytes: 10 };
+    },
+  });
+  loader.setWindow("grid", [request("removed"), request("returning")]);
+  loader.setWindow("grid", [request("replacement")]);
+  const late = loader.acquire(request("returning"));
+  finish.get("removed")!("removed");
+  finish.get("returning")!("returning");
+  finish.get("replacement")!("replacement");
+  await late.promise;
+  await tick();
+  expect(decoded).toEqual(["returning", "replacement"]);
+  expect(loader.peek("removed", 256)).toBeUndefined();
+  const retry = loader.acquire(request("removed"));
+  finish.get("removed")!("removed");
+  await expect(retry.promise).resolves.toBe("removed");
+  late.release();
+  retry.release();
+  expect(loader.stats().active).toBe(0);
+});

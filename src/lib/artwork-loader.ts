@@ -30,6 +30,8 @@ interface Options {
 }
 const keyOf = (url: string, thumbnail: number) =>
   JSON.stringify([thumbnail, url]);
+// Entries are shared by URL + size. `users` pins visible consumers; `wanted`
+// represents bounded lookahead. Never evict a mounted consumer to meet a budget.
 export class ArtworkLoader {
   private entries = new Map<string, Entry>();
   private wanted = new Map<string, ArtworkRequest>();
@@ -93,7 +95,11 @@ export class ArtworkLoader {
   retry(url: string, thumbnail = 0) {
     const key = keyOf(url, thumbnail),
       e = this.entries.get(key);
-    if (e && e.state !== "loading") this.remove(e);
+    if (e && e.state !== "loading") {
+      // A queued acquire already has a waiter: invalidation must settle it.
+      if (e.state === "queued") e.reject(new Error("Artwork retry requested"));
+      this.remove(e);
+    }
   }
   reconnect() {
     // Offscreen prefetches also need another chance when connectivity returns.
@@ -177,14 +183,23 @@ export class ArtworkLoader {
   }
   private pump() {
     while (this.active < (this.options.concurrency ?? 4)) {
-      const next = [...this.entries.values()]
-        .filter(
-          (e) =>
-            e.state === "queued" &&
-            (e.users || this.wanted.has(e.key)) &&
-            (e.priority < 2 || this.speculative < 2),
+      // Select the best eligible job in one pass, without allocating/sorting
+      // the whole cache after every completion. Oldest wins equal priorities.
+      let next: Entry | undefined;
+      for (const entry of this.entries.values()) {
+        if (
+          entry.state !== "queued" ||
+          (!entry.users && !this.wanted.has(entry.key)) ||
+          (entry.priority >= 2 && this.speculative >= 2)
         )
-        .sort((a, b) => a.priority - b.priority || a.touched - b.touched)[0];
+          continue;
+        if (
+          !next ||
+          entry.priority < next.priority ||
+          (entry.priority === next.priority && entry.touched < next.touched)
+        )
+          next = entry;
+      }
       if (!next) return;
       next.state = "loading";
       this.active++;
@@ -196,6 +211,13 @@ export class ArtworkLoader {
   private async run(e: Entry, speculative: boolean) {
     try {
       const src = await this.options.resolve(e.url, e.thumbnail);
+      // Resolve may finish after a scroll jump, removal, or artwork replacement.
+      // Skip expensive decode for abandoned work; a later acquire can retry it.
+      if (!e.users && !this.wanted.has(e.key)) {
+        this.remove(e);
+        e.reject(new Error("Artwork no longer in view"));
+        return;
+      }
       const value = await this.options.decode(src);
       e.value = value;
       e.state = "ready";

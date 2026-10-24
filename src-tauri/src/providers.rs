@@ -1,4 +1,9 @@
 //! Provider credentials, identity-aware persistent cache, and independent enrichment adapters.
+//!
+//! Contributor boundary: decrypted credentials are native-only. Expose configured
+//! flags, never secret values, to the UI; HTTP errors must not include request URLs
+//! or response bodies. Persistent lookup results must be checked against the current
+//! game identity before they are applied, even when the network request succeeded.
 use crate::{now, AppState, Game};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};

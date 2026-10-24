@@ -99,6 +99,8 @@ export function createVersionResolver() {
       return identity;
     });
 }
+// Presentation-only grouping: retain every original record and its launch copy.
+// Catalog conflicts must win over title similarity; never merge ownership here.
 export function versionLibrary(
   games: Game[],
   settings: Settings,

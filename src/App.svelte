@@ -835,6 +835,8 @@
     for (const scope of scopes) failedWrites.add(scope);
     saveStatus = "error";
   }
+  // All writes join `persistence`: metadata, flags and full snapshots must
+  // reach SQLite in UI order so an older snapshot cannot undo a newer edit.
   function flushEnrichment() {
     clearTimeout(enrichmentSaveTimer);
     enrichmentSaveTimer = undefined;
@@ -870,7 +872,9 @@
     clearTimeout(enrichmentSaveTimer);
     enrichmentSaveTimer = undefined;
     saveStatus = "saving";
-    const snapshot = structuredClone($state.snapshot({ games, settings }));
+    // Svelte's snapshot already detaches reactive state. A second deep clone
+    // doubles allocation for every edit/import in a large library.
+    const snapshot = $state.snapshot({ games, settings });
     persistence = persistence
       .catch(() => {})
       .then(() => api.saveLibrary(snapshot))
