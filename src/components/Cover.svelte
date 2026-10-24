@@ -16,6 +16,7 @@
   let failure = $state("");
   let resolved = $state({ key: "", src: "" });
   let reconnect = $state(0);
+  let reveal = $state(false);
   let rejected = $state.raw<{ identity: string; urls: string[] }>({
     identity: "",
     urls: [],
@@ -61,10 +62,12 @@
     let live = true;
     // Track the request identity, never carry a previous game's image across a rematch.
     if (!current) return;
+    const alreadyVisible = !!peekArtwork(current, thumbnail);
     const request = acquireArtwork(current, thumbnail, priority);
     request.promise
       .then((value) => {
         if (live) {
+          reveal = !alreadyVisible;
           failure = "";
           resolved = { key: currentKey, src: value };
         }
@@ -97,6 +100,7 @@
 
 {#if display && !failed}<img
     src={display}
+    class:artwork-reveal={reveal && resolved.key === key}
     alt=""
     loading="eager"
     decoding="async"
@@ -106,5 +110,8 @@
       rejectCurrent();
     }}
   />{:else}<div class="cover-fallback" class:loading-art={url && !failed}>
-    <Gamepad2 size={hero ? 48 : 28} strokeWidth={1} /><span>{game.title}</span>
+    {#if !url || failed}
+      <Gamepad2 size={hero ? 48 : 28} strokeWidth={1} /><span>{game.title}</span
+      >
+    {/if}
   </div>{/if}

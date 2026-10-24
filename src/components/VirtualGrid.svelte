@@ -127,7 +127,9 @@
           {#each row.games as game (game.id)}
             <GameCard
               {game}
-              {thumbnail}
+              thumbnail={row.top + row.height > top && row.top < top + height
+                ? thumbnail
+                : Math.min(thumbnail, 256)}
               priority={row.top + row.height > top && row.top < top + height
                 ? 0
                 : 1}

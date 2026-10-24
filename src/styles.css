@@ -2697,3 +2697,11 @@ dialog.artwork-dialog {
 @media (hover: none) {
   .card-favorite, .card-favorite:not(.active), .card-play { opacity: 1; transform: none; pointer-events: auto; }
 }
+
+/* Quiet placeholders avoid flashing a second title before an image arrives.
+   Only cold arrivals fade; warm covers and resolution upgrades stay immediate. */
+.cover-fallback.loading-art {
+  background: linear-gradient(145deg, var(--surface-hover), var(--surface));
+}
+.artwork-reveal { animation: artwork-reveal 140ms ease-out both; }
+@keyframes artwork-reveal { from { opacity: 0; } to { opacity: 1; } }

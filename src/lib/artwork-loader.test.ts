@@ -198,14 +198,17 @@ describe("artwork lookahead", () => {
     for (const size of [256, 384, 512]) {
       const window = artworkWindow(games, 6, 500, 503, 1, size);
       expect(window.length).toBeLessThanOrEqual(128);
-      expect(window.length * size * size * 1.5 * 4).toBeLessThanOrEqual(
-        48 * 1024 * 1024,
-      );
+      expect(
+        window.reduce(
+          (bytes, r) => bytes + r.thumbnail * r.thumbnail * 1.5 * 4,
+          0,
+        ),
+      ).toBeLessThanOrEqual(48 * 1024 * 1024);
       expect(window.slice(0, 18).every((r) => r.priority === 0)).toBe(true);
       expect(
         window.every(
           (r) =>
-            Number(r.url.slice(5)) >= 2982 && Number(r.url.slice(5)) < 3060,
+            Number(r.url.slice(5)) >= 2982 && Number(r.url.slice(5)) < 3096,
         ),
       ).toBe(true);
     }
@@ -292,4 +295,22 @@ it("skips abandoned decodes but accepts a late consumer and replacement art", as
   late.release();
   retry.release();
   expect(loader.stats().active).toBe(0);
+});
+
+it("prepares more high-DPI covers without reducing visible resolution or increasing the budget", () => {
+  const games = Array.from(
+    { length: 1000 },
+    (_, i) => ({ id: String(i), cover: `art-${i}` }) as Game,
+  );
+  const requests = artworkWindow(games, 6, 20, 23, 1, 512);
+  expect(
+    requests.filter((r) => r.priority === 0).every((r) => r.thumbnail === 512),
+  ).toBe(true);
+  expect(
+    requests.filter((r) => r.priority > 0).every((r) => r.thumbnail === 256),
+  ).toBe(true);
+  expect(requests.length).toBeGreaterThan(32);
+  expect(
+    requests.reduce((n, r) => n + r.thumbnail * r.thumbnail * 6, 0),
+  ).toBeLessThanOrEqual(48 * 1024 * 1024);
 });

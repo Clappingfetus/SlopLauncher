@@ -113,7 +113,7 @@ See [security and publication boundaries](SECURITY.md). Do not attach database f
 
 ## Project status
 
-Current source: **0.9.32**. Recent work includes consensus rating groups, cross-store personal flags, Amazon portrait artwork handling, and duplicate grouping in Hidden Games.
+Current source: **0.9.33**. Recent work includes consensus rating groups, cross-store personal flags, Amazon portrait artwork handling, and duplicate grouping in Hidden Games.
 
 Next priorities include testing on clean Windows installations, more robust store integrations, and signed distribution. Performance is a design priority, not a hardware-independent benchmark claim.
 
