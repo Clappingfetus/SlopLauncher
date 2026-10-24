@@ -21,6 +21,9 @@
     oncontext,
     versionCount,
     draggable = true,
+    selectionMode = false,
+    selectedIds = new Set<string>(),
+    onselect,
   }: {
     games: Game[];
     groups?: LibraryGroup[];
@@ -36,6 +39,9 @@
     oncontext?: (event: MouseEvent, game: Game) => void;
     versionCount?: (game: Game) => number;
     draggable?: boolean;
+    selectionMode?: boolean;
+    selectedIds?: Set<string>;
+    onselect?: (game: Game, event: MouseEvent) => void;
   } = $props();
   let width = $state(900),
     height = $state(700),
@@ -129,7 +135,10 @@
           {#each row.games as game (game.id)}
             <GameCard
               {game}
-              {draggable}
+              draggable={draggable && !selectionMode}
+              {selectionMode}
+              selected={selectedIds.has(game.id)}
+              {onselect}
               thumbnail={row.top + row.height > top && row.top < top + height
                 ? thumbnail
                 : Math.min(thumbnail, 256)}

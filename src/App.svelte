@@ -52,6 +52,12 @@
   import { InstallationWatch } from "./lib/installation-watch";
   import { launchAction } from "./lib/launch-action";
   import { draggedGameId, endGameDrag, GAME_DRAG_TYPE } from "./lib/game-drag";
+  import BanishedGames from "./components/BanishedGames.svelte";
+  import {
+    allowedGames,
+    groupedBanished,
+    type BanishedGame,
+  } from "./lib/banishment";
   import GameMenu from "./components/GameMenu.svelte";
   import ArtworkPicker from "./components/ArtworkPicker.svelte";
   import { artworkCatalogState } from "./lib/backend";
@@ -133,6 +139,7 @@
     query = $state(""),
     installedOnly = $state(false),
     tagFilter = $state(""),
+    sourceFilter = $state(""),
     sort = $state("title"),
     showFilters = $state(false);
   let page = $state<"library" | "sources" | "settings" | "setup">("library"),
@@ -147,6 +154,8 @@
       | "screenshot"
       | "remove"
       | "uninstall"
+      | "banish"
+      | "banished"
       | "emulation"
       | "collection"
       | "artwork"
@@ -208,6 +217,7 @@
   let gameIndex = $derived(new Map(games.map((g) => [g.id, g])));
   const dirtyEnrichment = new Set<string>();
   let lastEnrichmentSave = 0;
+  let restoringIds = $state.raw(new Set<string>());
   const enrichmentQueue = new EnrichmentQueue({
     concurrency: 12,
     perProviderConcurrency: 2,
@@ -234,6 +244,7 @@
       if (isLibraryResource(provider))
         return (
           (settings.autoFillGaps !== false ||
+            restoringIds.has(game.id) ||
             ratingDetailIds.has(game.id) ||
             selectedId === game.id) &&
           libraryResourceEnabled(game, provider)
@@ -264,7 +275,8 @@
           return !!providers.screenScraperConfigured;
       }
       return (
-        settings.autoFillGaps !== false && gapEnabled(game, provider, providers)
+        (settings.autoFillGaps !== false || restoringIds.has(game.id)) &&
+        gapEnabled(game, provider, providers)
       );
     },
     apply: (id, provider, result) => {
@@ -292,6 +304,8 @@
     enabled: () => api.desktop && ready && !demoMode,
     copyIds: () => new Set(games.flatMap((g) => g.copies.map((c) => c.id))),
     imported: (result, automatic) => {
+      if (!ready || libraryMutation) return;
+      result = { ...result, games: allowedGames(result.games, banishedGames) };
       const before = games.length;
       const previousGames = games,
         previousSteamId = settings.steamId;
@@ -450,6 +464,7 @@
       sort,
       resolvedCollections,
       !!settings.showHiddenGames,
+      sourceFilter,
     ),
   );
   let filtered = $derived(
@@ -707,6 +722,7 @@
       providers.screenScraperConfigured,
       providers.retroAchievementsConfigured,
       settings.autoFillGaps,
+      [...restoringIds],
       [...ratingDetailIds],
       selectedId,
       modal,
@@ -1013,6 +1029,139 @@
     if (filter === `collection:${id}`) navigate("all");
     notify("Collection deleted. Your games were kept.");
   }
+  let banishedGames = $state.raw<BanishedGame[]>([]);
+  let banishedGroups = $derived(groupedBanished(banishedGames));
+  let libraryMutation = $state(false);
+  let selectionMode = $state(false);
+  let selectionIds = $state.raw(new Set<string>());
+  let selectionAnchor = "";
+  let banishTargets = $state.raw<string[]>([]);
+  let contextActionIds = $derived(
+    contextGame && selectionIds.has(contextGame.id) && selectionIds.size > 1
+      ? [...selectionIds]
+      : contextGame
+        ? [contextGame.id]
+        : [],
+  );
+  function selectGame(game: Game, event: MouseEvent) {
+    selectionMode = true;
+    const next = new Set(selectionIds),
+      index = filtered.findIndex((g) => g.id === game.id),
+      anchor = filtered.findIndex((g) => g.id === selectionAnchor);
+    if (event.shiftKey && anchor >= 0 && index >= 0)
+      for (const g of filtered.slice(
+        Math.min(anchor, index),
+        Math.max(anchor, index) + 1,
+      ))
+        next.add(g.id);
+    else {
+      next.has(game.id) ? next.delete(game.id) : next.add(game.id);
+      selectionAnchor = game.id;
+    }
+    selectionIds = next;
+  }
+  function bulkFlag(
+    ids: string[],
+    field: "favorite" | "hidden",
+    value: boolean,
+  ) {
+    const targets = new Set(
+      ids.flatMap((id) => versionsIndex.members(id).map((g) => g.id)),
+    );
+    const at = Date.now();
+    games = games.map((g) =>
+      targets.has(g.id)
+        ? { ...g, [field]: value, [`${field}UpdatedAt`]: at }
+        : g,
+    );
+    persistFlags(
+      [...targets].map((id) => ({
+        id,
+        [field]: value,
+        [`${field}UpdatedAt`]: at,
+      })),
+    );
+  }
+  function bulkAdd(ids: string[], collectionId: string) {
+    try {
+      let next = collections;
+      for (const id of ids)
+        next = addCollectionGame(next, collectionId, id, games);
+      settings.collections = next;
+      persistSettings();
+      notify(
+        `Added ${ids.length} ${ids.length === 1 ? "game" : "games"} to collection.`,
+      );
+    } catch (error) {
+      notify(String(error), true);
+    }
+  }
+  function newBulkCollection(ids: string[]) {
+    collectionDraft = {
+      id: crypto.randomUUID(),
+      name: "",
+      gameIds: ids.filter((id) => gameIndex.has(id)),
+    };
+    openModal("collection");
+  }
+  function requestBanish(ids: string[]) {
+    banishTargets = [
+      ...new Set(
+        ids.flatMap((id) => versionsIndex.members(id).map((g) => g.id)),
+      ),
+    ].filter((id) => gameIndex.has(id));
+    if (banishTargets.length) openModal("banish");
+  }
+  async function mutateBlacklist(restore: boolean, ids: string[]) {
+    if (libraryMutation || demoMode) return;
+    if (notesSaveTimer) persist();
+    libraryMutation = true;
+    // Stop background producers before waiting for the ordered persistence tail.
+    ready = false;
+    enrichmentQueue.clear();
+    api.setLibraryArtwork([]);
+    endGameDrag();
+    try {
+      await persistence;
+      const result = restore
+        ? await api.unbanishGames(ids)
+        : await api.banishGames(ids);
+      const previous = new Set(games.map((g) => g.id));
+      banishedGames = result.banished;
+      games = result.library.games;
+      settings = { ...defaultSettings, ...result.library.settings };
+      if (restore)
+        restoringIds = new Set([
+          ...restoringIds,
+          ...games.filter((g) => !previous.has(g.id)).map((g) => g.id),
+        ]);
+      api.forgetArtworkMemory();
+      dirtyEnrichment.clear();
+      selectionIds = new Set();
+      selectionMode = false;
+      contextMenu = null;
+      selectedId = null;
+      if (!restore) closeModal();
+      notify(
+        restore
+          ? "Games restored. Artwork and metadata checks are queued."
+          : "Games banished. Cached artwork and metadata removed.",
+      );
+    } catch (error) {
+      notify(
+        `Could not ${restore ? "restore" : "banish"} games: ${error}`,
+        true,
+      );
+    } finally {
+      ready = true;
+      libraryMutation = false;
+    }
+  }
+  $effect(() => {
+    const live = new Set(games.map((g) => g.id));
+    if ([...selectionIds].some((id) => !live.has(id)))
+      selectionIds = new Set([...selectionIds].filter((id) => live.has(id)));
+  });
   let dropCollection = $state<string | null>(null);
   let draggedGame = $derived(
     $draggedGameId ? gameIndex.get($draggedGameId) : undefined,
@@ -1096,12 +1245,15 @@
     });
   }
   function navigate(value: Filter) {
+    selectionIds = new Set();
+    selectionMode = false;
     page = "library";
     selectedId = null;
     filter = value;
     if (value === "hidden") installedOnly = false;
     query = "";
     tagFilter = "";
+    sourceFilter = "";
     window.history.replaceState({}, "");
   }
   function closeDetails() {
@@ -1290,10 +1442,31 @@
       enrichmentQueue.scheduleReconcile(games, providers.revision, selectedId);
   }
   function keyboard(e: KeyboardEvent) {
-    if (e.defaultPrevented || document.querySelector("dialog[open]")) return;
+    if (
+      e.defaultPrevented ||
+      document.querySelector("dialog[open]") ||
+      libraryMutation
+    )
+      return;
     const editing =
       e.target instanceof Element &&
       !!e.target.closest("input, textarea, select, [contenteditable='true']");
+    if (
+      !editing &&
+      selectionMode &&
+      (e.ctrlKey || e.metaKey) &&
+      e.key.toLowerCase() === "a"
+    ) {
+      e.preventDefault();
+      selectionIds = new Set(filtered.map((g) => g.id));
+      return;
+    }
+    if (!editing && selectionMode && e.key === "Escape") {
+      e.preventDefault();
+      selectionMode = false;
+      selectionIds = new Set();
+      return;
+    }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       if (modal) return;
@@ -1346,7 +1519,7 @@
       const current = new Set(games.flatMap((g) => g.copies.map((c) => c.id)));
       games = mergeDiscovered(
         games,
-        report.games.filter((g) =>
+        allowedGames(report.games, banishedGames).filter((g) =>
           g.copies.every((c) => !before.has(c.id) || current.has(c.id)),
         ),
       );
@@ -1484,6 +1657,10 @@
         throw new Error("Enter a numeric Steam app ID, or leave it blank.");
       const game = await api.manualGame(addTitle, addPath, id);
       if (epoch !== libraryEpoch || demoMode) return;
+      if (!allowedGames([game], banishedGames).length) {
+        notify("This game is banished. Restore it from Settings first.", true);
+        return;
+      }
       games = [...games, game];
       persist();
       if (modal === "add") {
@@ -1521,6 +1698,10 @@
       throw new Error("Save your library before adding another game.");
     const game = await api.addEmulated(input);
     if (epoch !== libraryEpoch || demoMode) return;
+    if (!allowedGames([game], banishedGames).length) {
+      notify("This game is banished. Restore it from Settings first.", true);
+      return;
+    }
     games = [...games, game];
     persist();
     if (modal === "add") {
@@ -1592,7 +1773,11 @@
     loadError = "";
     try {
       await persistence;
-      const library = await api.loadLibrary();
+      const [library, blocked] = await Promise.all([
+        api.loadLibrary(),
+        api.listBanished(),
+      ]);
+      banishedGames = blocked;
       if (epoch !== libraryEpoch) return;
       settings = {
         ...defaultSettings,
@@ -1603,8 +1788,8 @@
       sort = sortOptions.some(([id]) => id === settings.librarySort)
         ? settings.librarySort!
         : "title";
-      games = library.games;
-      if (!api.desktop && !games.length) {
+      games = allowedGames(library.games, banishedGames);
+      if (!api.desktop && !games.length && !banishedGames.length) {
         demoMode = true;
         games = demoGames();
       }
@@ -1684,7 +1869,7 @@
     void accountManager.syncAll(true);
   }}
 />
-<div class="app-shell">
+<div class="app-shell" inert={libraryMutation}>
   <aside class="sidebar">
     <button
       class="brand"
@@ -1957,6 +2142,16 @@
               >{/if}</span
           >
         </div>
+        <button
+          class="banished-settings-card"
+          onclick={() => openModal("banished")}
+          disabled={demoMode}
+          ><span
+            ><strong>Banished games</strong><small
+              >Manage games blocked from imports and scans</small
+            ></span
+          ><b>{banishedGroups.length}</b><ChevronDown size={16} /></button
+        >
         <div class="setup-entry">
           <p>
             Need help connecting your games, artwork or achievements? Set up
@@ -2264,6 +2459,9 @@
                   onuninstall={() => void prepareUninstall(selected!)}
                   uninstallUnavailable={uninstallUnavailable(selected)}
                   gameId={selected.id}
+                  onbanish={demoMode
+                    ? undefined
+                    : () => requestBanish([selected!.id])}
                   collections={resolvedCollections}
                   onaddtocollection={demoMode
                     ? undefined
@@ -2586,12 +2784,22 @@
               class:chosen={showFilters}
               aria-expanded={showFilters}
               onclick={() => (showFilters = !showFilters)}
-              ><SlidersHorizontal size={14} />Filters{#if tagFilter}<span
-                  class="filter-count">1</span
+              ><SlidersHorizontal
+                size={14}
+              />Filters{#if tagFilter || sourceFilter}<span class="filter-count"
+                  >{Number(!!tagFilter) + Number(!!sourceFilter)}</span
                 >{/if}</button
             >
           </div>
           <div class="library-layout-controls">
+            {#if !demoMode}<button
+                class="text-button"
+                aria-pressed={selectionMode}
+                onclick={() => {
+                  selectionMode = !selectionMode;
+                  if (!selectionMode) selectionIds = new Set();
+                }}>{selectionMode ? "Done selecting" : "Select games"}</button
+              >{/if}
             <label class="sort-control"
               ><span>Group by</span><select
                 aria-label="Group library"
@@ -2627,6 +2835,16 @@
         </div>
         {#if showFilters}<div class="expanded-filters">
             <label
+              >Source<select
+                aria-label="Filter by source"
+                bind:value={sourceFilter}
+                ><option value="">All sources</option
+                >{#each sources as source}<option value={source}
+                    >{sourceNames[source]}</option
+                  >{/each}</select
+              ></label
+            >
+            <label
               >Tag<select aria-label="Tag" bind:value={tagFilter}
                 ><option value="">All tags</option>{#each tags as g}<option
                     value={tagKey(g)}>{g}</option
@@ -2642,11 +2860,67 @@
                 bind:value={settings.coverSize}
                 onchange={persistSettings}
               /></label
-            >{#if tagFilter}<button
+            >{#if tagFilter || sourceFilter}<button
                 class="text-button"
-                onclick={() => (tagFilter = "")}
-                >Clear filters<X size={13} /></button
+                onclick={() => {
+                  tagFilter = "";
+                  sourceFilter = "";
+                }}>Clear filters<X size={13} /></button
               >{/if}
+          </div>{/if}
+        {#if selectionMode}<div
+            class="bulk-actions"
+            aria-label="Selected game actions"
+          >
+            <strong>{selectionIds.size} selected</strong><button
+              class="text-button"
+              onclick={() =>
+                (selectionIds = new Set(filtered.map((g) => g.id)))}
+              >Select all shown</button
+            >
+            <select
+              aria-label="Bulk game action"
+              disabled={!selectionIds.size}
+              onchange={(event) => {
+                const action = event.currentTarget.value;
+                event.currentTarget.value = "";
+                if (action === "banish") requestBanish([...selectionIds]);
+                else if (action === "favorite")
+                  bulkFlag([...selectionIds], "favorite", true);
+                else if (action === "unfavorite")
+                  bulkFlag([...selectionIds], "favorite", false);
+                else if (action === "hide")
+                  bulkFlag([...selectionIds], "hidden", true);
+                else if (action === "unhide")
+                  bulkFlag([...selectionIds], "hidden", false);
+              }}
+              ><option value="">Choose action…</option><option value="favorite"
+                >Add to Favorites</option
+              ><option value="unfavorite">Remove from Favorites</option><option
+                value="hide">Hide</option
+              ><option value="unhide">Unhide</option><option value="banish"
+                >Banish…</option
+              ></select
+            >
+            <select
+              aria-label="Add selected games to collection"
+              disabled={!selectionIds.size}
+              onchange={(event) => {
+                const id = event.currentTarget.value;
+                event.currentTarget.value = "";
+                id === "new"
+                  ? newBulkCollection([...selectionIds])
+                  : bulkAdd([...selectionIds], id);
+              }}
+              ><option value="">Add to Collection…</option
+              >{#each collections.filter((c) => !c.rule) as c}<option
+                  value={c.id}>{c.name}</option
+                >{/each}<option value="new">New Collection…</option></select
+            >
+            <button
+              class="text-button"
+              onclick={() => (selectionIds = new Set())}>Clear selection</button
+            >
           </div>{/if}
         {#if loadError}<div class="empty-state" role="alert">
             <Info size={28} />
@@ -2711,6 +2985,7 @@
                   onclick={() => {
                     query = "";
                     tagFilter = "";
+                    sourceFilter = "";
                     installedOnly = false;
                   }}>Clear filters</button
                 >{:else}<button
@@ -2754,6 +3029,9 @@
               onlaunch={launch}
               oncontext={showGameContext}
               draggable={!demoMode}
+              {selectionMode}
+              selectedIds={selectionIds}
+              onselect={demoMode ? undefined : selectGame}
               versionCount={(game) =>
                 settings.hideDuplicateGames
                   ? versionsIndex.versions(game.id).length
@@ -2799,13 +3077,21 @@
 {#if contextMenu && contextGame}
   <GameMenu
     gameId={contextGame.id}
+    batchCount={contextActionIds.length}
+    onbanish={demoMode ? undefined : () => requestBanish(contextActionIds)}
+    onfavorite={contextActionIds.length > 1
+      ? () => bulkFlag(contextActionIds, "favorite", true)
+      : undefined}
+    onhide={contextActionIds.length > 1
+      ? () => bulkFlag(contextActionIds, "hidden", true)
+      : undefined}
     collections={resolvedCollections}
     onaddtocollection={demoMode
       ? undefined
-      : (id) => addToCollection(contextGame!.id, id)}
+      : (id) => bulkAdd(contextActionIds, id)}
     onnewcollection={demoMode
       ? undefined
-      : () => editCollection(undefined, contextGame!.id)}
+      : () => newBulkCollection(contextActionIds)}
     copyId={preferredCopy(contextGame)?.id}
     anchor={contextMenu.anchor}
     artworkOnly={contextMenu.slot}
@@ -2829,43 +3115,83 @@
 
 <dialog
   bind:this={dialog!}
-  oncancel={() => closeModal()}
+  oncancel={(event) => {
+    if (libraryMutation) event.preventDefault();
+    else closeModal();
+  }}
   onclose={() => {
     modal = null;
   }}
   class:media-dialog={modal === "screenshot"}
   class:artwork-dialog={modal === "artwork"}
   class:grouping-dialog={modal === "grouping"}
+  class:banished-dialog={modal === "banished"}
   aria-labelledby="dialog-title"
 >
   {#if modal}
     <div class="dialog-header">
       <h2 id="dialog-title">
-        {modal === "add"
-          ? "Add a game"
-          : modal === "metadata"
-            ? "Game details"
-            : modal === "uninstall"
-              ? "Uninstall game"
-              : modal === "remove"
-                ? "Remove game"
-                : modal === "emulation"
-                  ? "Emulator setup"
-                  : modal === "collection"
-                    ? collections.some((c) => c.id === collectionDraft.id)
-                      ? "Edit collection"
-                      : "New collection"
-                    : modal === "artwork"
-                      ? "Change Artwork"
-                      : modal === "grouping"
-                        ? "Smart grouping"
-                        : "Screenshot"}
+        {modal === "banished"
+          ? "Banished games"
+          : modal === "banish"
+            ? "Banish games"
+            : modal === "add"
+              ? "Add a game"
+              : modal === "metadata"
+                ? "Game details"
+                : modal === "uninstall"
+                  ? "Uninstall game"
+                  : modal === "remove"
+                    ? "Remove game"
+                    : modal === "emulation"
+                      ? "Emulator setup"
+                      : modal === "collection"
+                        ? collections.some((c) => c.id === collectionDraft.id)
+                          ? "Edit collection"
+                          : "New collection"
+                        : modal === "artwork"
+                          ? "Change Artwork"
+                          : modal === "grouping"
+                            ? "Smart grouping"
+                            : "Screenshot"}
       </h2>
-      <button class="icon-button" aria-label="Close dialog" onclick={closeModal}
-        ><X size={19} /></button
+      <button
+        class="icon-button"
+        aria-label="Close dialog"
+        disabled={libraryMutation}
+        onclick={closeModal}><X size={19} /></button
       >
     </div>
-    {#if modal === "artwork" && artworkGame}
+    {#if modal === "banished"}<BanishedGames
+        entries={banishedGroups}
+        busy={libraryMutation}
+        onrestore={(ids) => void mutateBlacklist(true, ids)}
+      />
+    {:else if modal === "banish"}<div class="banish-confirm">
+        <p>
+          Banish {banishTargets.length}
+          {banishTargets.length === 1 ? "game" : "games"} and all linked store copies?
+        </p>
+        <p class="field-hint">
+          Downloaded artwork and metadata will be deleted and future imports
+          blocked. Your installed game files are kept. Recovery is available
+          only in Settings → Banished games.
+        </p>
+        <div class="banish-confirm-list">
+          {#each banishTargets as id}<div>
+              {gameIndex.get(id)?.title}
+            </div>{/each}
+        </div>
+        <div class="dialog-actions">
+          <button class="secondary-button" onclick={closeModal}>Cancel</button
+          ><button
+            class="primary-button danger-button"
+            onclick={() => void mutateBlacklist(false, banishTargets)}
+            >Banish games</button
+          >
+        </div>
+      </div>
+    {:else if modal === "artwork" && artworkGame}
       {#key artworkIdentity(artworkGame)}
         <ArtworkPicker
           game={artworkGame}
@@ -3253,4 +3579,9 @@
       aria-label="Dismiss notification"
       onclick={() => (toast = "")}><X size={16} /></button
     >
+  </div>{/if}
+
+{#if libraryMutation}<div class="library-operation" role="status">
+    <LoaderCircle size={22} class="spin" />Updating blacklist and cleaning
+    cached data…
   </div>{/if}

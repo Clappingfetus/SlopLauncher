@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod accounts;
+mod banishment;
 mod ratings;
 mod achievements;
 mod retroachievements;
@@ -300,6 +301,7 @@ fn err(e: impl std::fmt::Display) -> String {
 fn db_open(path: &Path) -> Result<Connection, String> {
     let db = Connection::open(path).map_err(err)?;
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS games(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS metadata(app_id INTEGER PRIMARY KEY,data TEXT NOT NULL,updated_at INTEGER NOT NULL); PRAGMA user_version=1;").map_err(err)?;
+    banishment::setup(&db)?;
     providers::setup_schema(&db)?;
     accounts::setup_schema(&db)?;
     Ok(db)
@@ -583,6 +585,7 @@ fn store_library(library: &Library, db: &mut Connection) -> Result<(), String> {
     let tx = db.transaction().map_err(err)?;
     tx.execute_batch("CREATE TEMP TABLE IF NOT EXISTS incoming_ids(id TEXT PRIMARY KEY); DELETE FROM incoming_ids;").map_err(err)?;
     for g in &library.games {
+        if banishment::blocked(&tx,g) { continue; }
         if g.tags.len() > 64
             || g.tags.iter().any(|tag| {
                 tag.is_empty() || tag.chars().count() > 80 || tag.chars().any(char::is_control)
@@ -664,6 +667,7 @@ async fn save_theme(theme: String, app: tauri::AppHandle) -> Result<(), String> 
 async fn scan_installed(
     library_folders: Option<folders::LibraryFolders>,
     sources: Option<Vec<String>>,
+    app: tauri::AppHandle,
 ) -> Result<ScanReport, String> {
     let folders = library_folders.unwrap_or_default();
     folders::validate(&folders)?;
@@ -676,10 +680,13 @@ async fn scan_installed(
         return Err("Unknown installation source".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        discovery::scan_selected(&folders, sources.as_deref())
+        let mut report=discovery::scan_selected(&folders, sources.as_deref());
+        let state=app.state::<AppState>();
+        report.games=banishment::filter_discovered(&*state.db.lock().map_err(err)?,report.games)?;
+        Ok::<_,String>(report)
     })
     .await
-    .map_err(err)
+    .map_err(err)?
 }
 #[tauri::command]
 async fn artwork_catalog(urls: Vec<String>, state: State<'_, AppState>) -> Result<Vec<(String, String)>, String> {
@@ -697,6 +704,8 @@ async fn cached_artwork(
     thumbnail: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    let _lease=banishment::content_lease().await;
+    if banishment::artwork_blocked(&*state.db.lock().map_err(err)?,&url){return Err("Artwork belongs to a banished game".into());}
     let key = thumbnail
         .map(|width| artwork::thumbnail_key(&url, width))
         .transpose()?;
@@ -967,6 +976,8 @@ async fn search_metadata(
 
 #[tauri::command]
 async fn steam_metadata(app_id: u32, state: State<'_, AppState>) -> Result<StoreMetadata, String> {
+    let _lease=banishment::content_lease().await;
+    if banishment::catalog_blocked(&*state.db.lock().map_err(err)?,"steam",&app_id.to_string(),&serde_json::Value::Null){return Err("Game is banished".into());}
     fetch_steam_metadata(app_id, &state).await
 }
 async fn fetch_steam_metadata(app_id: u32, state: &AppState) -> Result<StoreMetadata, String> {
@@ -1106,6 +1117,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             load_library,
+            banishment::list_banished,
+            banishment::banish_games,
+            banishment::unbanish_games,
             save_library,
             save_settings,
             save_game_flags,

@@ -39,6 +39,7 @@ export class ArtworkLoader {
   private active = 0;
   private speculative = 0;
   private clock = 0;
+  private generation = 0;
   constructor(private options: Options) {}
   peek(url: string, thumbnail = 0): string | undefined {
     const exact = this.entries.get(keyOf(url, thumbnail));
@@ -91,6 +92,16 @@ export class ArtworkLoader {
       this.prune();
       this.trim();
     }
+  }
+  clear() {
+    this.generation++;
+    for (const e of this.entries.values()) {
+      e.value?.dispose?.();
+      if (e.state === "queued" || e.state === "loading")
+        e.reject(new Error("Artwork cleared"));
+    }
+    this.entries.clear();
+    this.wanted.clear();
   }
   retry(url: string, thumbnail = 0) {
     const key = keyOf(url, thumbnail),
@@ -209,8 +220,10 @@ export class ArtworkLoader {
     }
   }
   private async run(e: Entry, speculative: boolean) {
+    const generation = this.generation;
     try {
       const src = await this.options.resolve(e.url, e.thumbnail);
+      if (generation !== this.generation) return;
       // Resolve may finish after a scroll jump, removal, or artwork replacement.
       // Skip expensive decode for abandoned work; a later acquire can retry it.
       if (!e.users && !this.wanted.has(e.key)) {
@@ -219,6 +232,10 @@ export class ArtworkLoader {
         return;
       }
       const value = await this.options.decode(src);
+      if (generation !== this.generation) {
+        value.dispose?.();
+        return;
+      }
       e.value = value;
       e.state = "ready";
       e.touched = ++this.clock;

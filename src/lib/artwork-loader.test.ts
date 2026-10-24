@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ArtworkLoader } from "./artwork-loader";
 import { artworkWindow, thumbnailWidth } from "./artwork-window";
 import type { Game } from "./types";
@@ -313,4 +313,26 @@ it("prepares more high-DPI covers without reducing visible resolution or increas
   expect(
     requests.reduce((n, r) => n + r.thumbnail * r.thumbnail * 6, 0),
   ).toBeLessThanOrEqual(48 * 1024 * 1024);
+});
+
+it("purges memory and discards image decoding that finishes after a blacklist operation", async () => {
+  let finish!: (src: string) => void;
+  const decode = vi.fn(async (src: string) => ({ src, bytes: 4 }));
+  const loader = new ArtworkLoader({
+    resolve: () => new Promise<string>((r) => (finish = r)),
+    decode,
+  });
+  const item = loader.acquire({
+    url: "banished-cover",
+    thumbnail: 256,
+    priority: 0,
+  });
+  const rejected = expect(item.promise).rejects.toThrow("cleared");
+  loader.clear();
+  await rejected;
+  finish("late-image");
+  await tick();
+  expect(decode).not.toHaveBeenCalled();
+  expect(loader.peek("banished-cover", 256)).toBeUndefined();
+  expect(loader.stats().active).toBe(0);
 });

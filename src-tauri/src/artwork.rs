@@ -44,7 +44,7 @@ pub fn allowed_url(input: &str) -> bool {
                         && u.path().starts_with("/steamgriddb/"))))
     })
 }
-fn cache_name(key: &str) -> String {
+pub(crate) fn cache_name(key: &str) -> String {
     let mut hash = DefaultHasher::new();
     key.hash(&mut hash);
     format!("{:016x}", hash.finish())

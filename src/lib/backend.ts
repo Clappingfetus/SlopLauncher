@@ -1,3 +1,11 @@
+import {
+  allowedGames,
+  blacklistKeys,
+  recoveryGame,
+  expandBlacklistTargets,
+  type BanishedGame,
+  type BanishResult,
+} from "./banishment";
 import { writable } from "svelte/store";
 import { ArtworkCatalog, libraryCoverTargets } from "./artwork-catalog";
 import { listen } from "@tauri-apps/api/event";
@@ -213,6 +221,11 @@ export async function saveSettings(settings: Settings) {
   }
 }
 export async function saveLibrary(library: Library) {
+  if (!desktop)
+    library = {
+      ...library,
+      games: allowedGames(library.games, await listBanished()),
+    };
   if (desktop) await invoke("save_library", { library });
   else localStorage.setItem(storageKey, JSON.stringify(library));
 }
@@ -340,4 +353,61 @@ export async function listenArtworkDownloads(update: (delta: number) => void) {
   return listen<number>("artwork-download", (event) => {
     if (event.payload === 1 || event.payload === -1) update(event.payload);
   });
+}
+
+const banishedKey = "sloplauncher.banished.v1";
+export async function listBanished(): Promise<BanishedGame[]> {
+  return desktop
+    ? invoke("list_banished")
+    : JSON.parse(localStorage.getItem(banishedKey) ?? "[]");
+}
+export async function banishGames(ids: string[]): Promise<BanishResult> {
+  if (desktop) return invoke("banish_games", { ids });
+  const library = await loadLibrary(),
+    targets = expandBlacklistTargets(library.games, ids);
+  const banished = [
+    ...(await listBanished()),
+    ...library.games
+      .filter((g) => targets.has(g.id))
+      .map((g) => ({
+        id: g.id,
+        title: g.title,
+        banishedAt: Date.now(),
+        keys: blacklistKeys(g),
+        game: recoveryGame(g),
+        artworkHashes: [],
+      })),
+  ];
+  library.games = library.games.filter((g) => !targets.has(g.id));
+  library.settings.collections = library.settings.collections?.map((c) => ({
+    ...c,
+    gameIds: c.gameIds.filter((id) => !targets.has(id)),
+  }));
+  localStorage.setItem(banishedKey, JSON.stringify(banished));
+  localStorage.setItem(storageKey, JSON.stringify(library));
+  return { library, banished };
+}
+export async function unbanishGames(ids: string[]): Promise<BanishResult> {
+  if (desktop) return invoke("unbanish_games", { ids });
+  const all = await listBanished(),
+    library = await loadLibrary();
+  const targets = expandBlacklistTargets(
+    all.map((b) => ({
+      ...b.game,
+      metadataId:
+        Number(b.keys.find((k) => k.startsWith("match:steam:"))?.slice(12)) ||
+        undefined,
+    })),
+    ids,
+  );
+  const restored = all.filter((b) => targets.has(b.id)),
+    banished = all.filter((b) => !targets.has(b.id));
+  library.games.push(...restored.map((b) => b.game));
+  localStorage.setItem(banishedKey, JSON.stringify(banished));
+  localStorage.setItem(storageKey, JSON.stringify(library));
+  return { library, banished };
+}
+export function forgetArtworkMemory() {
+  artworkLoader.clear();
+  artworkCatalog.reconcile([]);
 }

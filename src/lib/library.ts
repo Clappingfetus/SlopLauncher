@@ -26,6 +26,7 @@ export function filterGames(
   sort: string,
   collections: GameCollection[] = [],
   showHiddenGames = false,
+  source = "",
 ): Game[] {
   const members = isCollectionFilter(filter)
     ? new Set(collections.find((c) => c.id === filter.slice(11))?.gameIds ?? [])
@@ -35,6 +36,7 @@ export function filterGames(
   const result = games.filter((g) => {
     if (filter === "hidden" ? !g.hidden : g.hidden && !showHiddenGames)
       return false;
+    if (source && !g.copies.some((c) => c.source === source)) return false;
     const matches =
       (filter === "all" ||
         filter === "hidden" ||

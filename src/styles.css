@@ -2779,3 +2779,10 @@ dialog.artwork-dialog {
   font-size: 10px;
   font-weight: 400;
 }
+
+.bulk-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 28px 14px;padding:12px 16px;background:var(--surface);border:1px solid var(--accent);border-radius:10px;font-size:12px}.bulk-actions select{max-width:230px}.game-selected .cover-wrap{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}.card-select{position:absolute;top:9px;left:9px;width:24px;height:24px;z-index:4;border:1px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--accent);opacity:0}.game-card:hover .card-select,.card-select:focus-visible,.card-select.visible{opacity:1}.card-select.active{background:var(--accent);color:var(--on-accent)}.banished-settings-card{display:flex;align-items:center;gap:18px;text-align:left;padding:18px 22px;border:1px solid var(--line);border-radius:12px;background:var(--surface);width:100%;margin-bottom:20px}.banished-settings-card span{flex:1}.banished-settings-card small{display:block;color:var(--muted);margin-top:5px}.banished-settings-card b{font-size:24px;color:var(--accent)}dialog.banished-dialog{width:min(850px,94vw)}.banish-confirm>p{margin-bottom:16px}.banish-confirm-list{max-height:220px;overflow:auto;font-size:13px;color:var(--muted);line-height:1.9}.danger-button{background:var(--danger)!important;color:var(--bg)!important}.library-operation{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;gap:14px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--text)}
+
+dialog.banished-dialog{max-width:850px;width:calc(100vw - 48px)}
+.bulk-actions select,.banished-controls input{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:12px;}
+.card-select:not(.visible){top:auto;bottom:9px;pointer-events:none;}
+.game-card:hover .card-select,.card-select:focus-visible,.card-select.visible{pointer-events:auto;}

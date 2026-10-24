@@ -32,6 +32,10 @@
     collections = [],
     onaddtocollection,
     onnewcollection,
+    onbanish,
+    onfavorite,
+    onhide,
+    batchCount = 0,
   }: {
     gameId: string;
     copyId?: string;
@@ -49,6 +53,10 @@
     collections?: GameCollection[];
     onaddtocollection?: (id: string) => void;
     onnewcollection?: () => void;
+    onbanish?: () => void;
+    onfavorite?: () => void;
+    onhide?: () => void;
+    batchCount?: number;
   } = $props();
   let trigger = $state<HTMLButtonElement>();
   let menu = $state<HTMLDivElement>();
@@ -220,10 +228,11 @@
       {#each collections as collection (collection.id)}
         <button
           role="menuitem"
-          disabled={!!collection.rule || collection.gameIds.includes(gameId)}
+          disabled={!!collection.rule ||
+            (batchCount <= 1 && collection.gameIds.includes(gameId))}
           title={collection.rule
             ? "Automatic collection: membership follows its saved rules"
-            : collection.gameIds.includes(gameId)
+            : batchCount <= 1 && collection.gameIds.includes(gameId)
               ? "Already in this collection"
               : `Add to ${collection.name}`}
           onclick={() => {
@@ -235,12 +244,14 @@
             >{collection.name}<small
               >{collection.rule
                 ? "Automatic"
-                : collection.gameIds.includes(gameId)
+                : batchCount <= 1 && collection.gameIds.includes(gameId)
                   ? "Already added"
                   : ""}</small
             ></span
           >
-          {#if collection.gameIds.includes(gameId)}<Check size={14} />{/if}
+          {#if batchCount <= 1 && collection.gameIds.includes(gameId)}<Check
+              size={14}
+            />{/if}
         </button>
       {:else}<p class="collection-menu-empty">
           Create your first collection below.
@@ -254,13 +265,31 @@
         }}><Plus size={16} />New Collection…</button
       >{/if}
   {:else}
-    <button
-      role="menuitem"
-      onclick={() => {
-        dismiss();
-        ondetails();
-      }}><Info size={16} />Game Details</button
-    >
+    {#if batchCount > 1}<p class="collection-menu-empty">
+        {batchCount} games selected
+      </p>{/if}
+    {#if batchCount <= 1}<button
+        role="menuitem"
+        onclick={() => {
+          dismiss();
+          ondetails();
+        }}><Info size={16} />Game Details</button
+      >
+    {/if}
+    {#if onfavorite}<button
+        role="menuitem"
+        onclick={() => {
+          onfavorite?.();
+          dismiss();
+        }}>Add to Favorites</button
+      >{/if}
+    {#if onhide}<button
+        role="menuitem"
+        onclick={() => {
+          onhide?.();
+          dismiss();
+        }}>Hide games</button
+      >{/if}
     {#if onaddtocollection}<button
         role="menuitem"
         data-collection-trigger
@@ -271,43 +300,56 @@
           size={14}
         /></button
       >{/if}
-    <button
-      role="menuitem"
-      disabled={!!browseUnavailable}
-      title={browseUnavailable ||
-        "Open this copy’s installation folder in Explorer"}
-      onclick={() => {
-        dismiss(true);
-        onbrowse();
-      }}><FolderOpen size={16} />Browse Game Files</button
-    >
-    {#if onartwork}<button
+    {#if batchCount <= 1}
+      <button
         role="menuitem"
+        disabled={!!browseUnavailable}
+        title={browseUnavailable ||
+          "Open this copy’s installation folder in Explorer"}
         onclick={() => {
-          dismiss();
-          onartwork?.();
-        }}><Image size={16} />Change Artwork</button
-      >{/if}
-    {#if onemulation}<button
+          dismiss(true);
+          onbrowse();
+        }}><FolderOpen size={16} />Browse Game Files</button
+      >
+      {#if onartwork}<button
+          role="menuitem"
+          onclick={() => {
+            dismiss();
+            onartwork?.();
+          }}><Image size={16} />Change Artwork</button
+        >{/if}
+      {#if onemulation}<button
+          role="menuitem"
+          onclick={() => {
+            dismiss();
+            onemulation?.();
+          }}><Gamepad2 size={16} />Emulator Setup</button
+        >{/if}
+      {#if onuninstall}<button
+          role="menuitem"
+          disabled={!!uninstallUnavailable}
+          title={uninstallUnavailable || "Uninstall the selected version"}
+          onclick={() => {
+            dismiss();
+            onuninstall?.();
+          }}><Trash2 size={16} />Uninstall…</button
+        >{/if}
+    {/if}
+    {#if onbanish}<button
         role="menuitem"
+        class="banish-action"
         onclick={() => {
+          onbanish?.();
           dismiss();
-          onemulation?.();
-        }}><Gamepad2 size={16} />Emulator Setup</button
-      >{/if}
-    {#if onuninstall}<button
-        role="menuitem"
-        disabled={!!uninstallUnavailable}
-        title={uninstallUnavailable || "Uninstall the selected version"}
-        onclick={() => {
-          dismiss();
-          onuninstall?.();
-        }}><Trash2 size={16} />Uninstall…</button
+        }}><Trash2 size={16} />Banish…</button
       >{/if}
   {/if}
 </div>
 
 <style>
+  .banish-action {
+    color: var(--danger);
+  }
   .game-menu {
     position: fixed;
     inset: auto;

@@ -17,6 +17,9 @@
     oncontext,
     versionCount = game.copies.length,
     draggable = true,
+    selectionMode = false,
+    selected = false,
+    onselect,
   }: {
     game: Game;
     thumbnail: number;
@@ -28,6 +31,9 @@
     oncontext?: (event: MouseEvent, game: Game) => void;
     versionCount?: number;
     draggable?: boolean;
+    selectionMode?: boolean;
+    selected?: boolean;
+    onselect?: (game: Game, event: MouseEvent) => void;
   } = $props();
   let copy = $derived(preferredCopy(game));
   let installed = $derived(!!copy?.installed);
@@ -36,6 +42,7 @@
 
 <article
   class="game-card"
+  class:game-selected={selected}
   class:game-hidden={game.hidden}
   class:game-dragging={$draggedGameId === game.id}
 >
@@ -49,11 +56,27 @@
       }}
       ondragend={endGameDrag}
       oncontextmenu={(event) => oncontext?.(event, game)}
-      onclick={() => onopen(game)}
+      onclick={(event) => {
+        if (
+          onselect &&
+          (selectionMode || event.ctrlKey || event.metaKey || event.shiftKey)
+        )
+          onselect(game, event);
+        else onopen(game);
+      }}
       aria-label={`View ${game.title}`}
       ><Cover {game} {thumbnail} {priority} /></button
     >
-    {#if onhide}<button
+    {#if onselect}<button
+        class="card-select"
+        class:visible={selectionMode}
+        class:active={selected}
+        aria-label={`${selected ? "Deselect" : "Select"} ${game.title}`}
+        aria-pressed={selected}
+        onclick={(event) => onselect?.(game, event)}
+        >{selected ? "✓" : ""}</button
+      >{/if}
+    {#if onhide && !selectionMode}<button
         class="card-hide"
         class:active={game.hidden}
         aria-label={`${game.hidden ? "Unhide" : "Hide"} ${game.title}`}

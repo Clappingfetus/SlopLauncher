@@ -160,6 +160,7 @@ impl Runtime {
     }
 }
 pub fn setup_schema(db: &Connection) -> Result<(), String> {
+    crate::banishment::setup(db)?;
     db.execute_batch("CREATE TABLE IF NOT EXISTS source_accounts(source TEXT PRIMARY KEY,data BLOB NOT NULL);CREATE TABLE IF NOT EXISTS account_catalog(source TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,expires INTEGER NOT NULL,PRIMARY KEY(source,id));").map_err(|_|"Could not initialize account storage".to_string())?;
     db.execute(
         "DELETE FROM account_catalog WHERE expires<?1",
@@ -806,6 +807,7 @@ pub async fn connect_steam_account(
         ..Account::default()
     };
     let games = deduplicate(steam_games(&state, &a).await.map_err(|e| clean_error(&e))?)?;
+    let games=crate::banishment::filter_discovered(&*state.db.lock().map_err(|_|"Library is busy")?,games)?;
     a.last_sync = Some(now());
     a.owned_count = Some(games.len());
     save(&state, "steam", &a)?;
@@ -869,6 +871,7 @@ pub async fn connect_itch_account(
         ..Account::default()
     };
     let games = itch_games(&state, &a).await.map_err(|e| clean_error(&e))?;
+    let games=crate::banishment::filter_discovered(&*state.db.lock().map_err(|_|"Library is busy")?,games)?;
     a.last_sync = Some(now());
     a.owned_count = Some(games.len());
     // Validate everything before replacing a working connection; a concurrent disconnect wins.
@@ -894,8 +897,9 @@ fn cached_catalog(state: &AppState, source: &str, id: &str) -> Option<Value> {
         .ok()
         .and_then(|v| serde_json::from_str(&v).ok())
 }
-fn save_catalog(state: &AppState, source: &str, id: &str, data: &Value) {
+fn save_catalog(state: &AppState, source: &str, id: &str, data: &Value, owner:Option<&Game>) {
     if let Ok(db) = state.db.lock() {
+        if owner.is_some_and(|g|crate::banishment::blocked(&db,g)) || crate::banishment::catalog_blocked(&db,source,id,data) {return;}
         let _ = db.execute(
             "INSERT OR REPLACE INTO account_catalog(source,id,data,expires)VALUES(?1,?2,?3,?4)",
             params![source, id, data.to_string(), now() + 7 * 86400000],
@@ -1010,7 +1014,7 @@ async fn epic_games(state: &AppState, a: &Account) -> Result<Vec<Game>, String> 
             let (key, meta, game) = result
                 .map_err(|_| "Epic catalog task failed. Your saved library has been kept.")?;
             if meta.is_object() {
-                save_catalog(state, "epic", &key, &meta);
+                save_catalog(state, "epic", &key, &meta,game.as_ref());
             }
             if let Some(g) = game {
                 games.push(g);
@@ -1118,7 +1122,7 @@ async fn gog_games(state: &AppState, a: &Account) -> Result<Vec<Game>, String> {
             let (id, meta, g) =
                 result.map_err(|_| "GOG catalog task failed. Your saved library has been kept.")?;
             if meta["title"].is_string() {
-                save_catalog(state, "gog", &id, &meta);
+                save_catalog(state, "gog", &id, &meta,Some(&g));
             }
             games.push(g);
         }
@@ -1221,6 +1225,7 @@ pub async fn sync_account(
     let result:Result<SyncResult,String>=async {
         let mut a=refreshed(&source,&state,original.clone()).await?;
         let games=deduplicate(match source.as_str(){"steam"=>steam_games(&state,&a).await?,"epic"=>epic_games(&state,&a).await?,"amazon"=>amazon_games(&state,&a).await?,"gog"=>gog_games(&state,&a).await?,"itch"=>itch_games(&state,&a).await?,_=>return Err("Unknown account source".into())})?;
+        let games=crate::banishment::filter_discovered(&*state.db.lock().map_err(|_|"Library is busy")?,games)?;
         a.last_sync=Some(now());a.next_retry_at=None;a.owned_count=Some(games.len());a.error=None;a.reconnect_required=false;save_current(&state,&source,&a)?;
         let fallback=games.iter().filter(|g|g.title==format!("{} game {}",match source.as_str(){"itch"=>"itch.io","gog"=>"GOG","epic"=>"Epic","amazon"=>"Amazon",_=>"Steam"},g.copies[0].source_id)).count();
         let messages=if fallback>0 {vec![format!("{fallback} owned games have temporary titles because store metadata was unavailable. A later sync will retry them.")]}else{vec![]};

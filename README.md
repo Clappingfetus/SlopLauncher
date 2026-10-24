@@ -59,6 +59,8 @@ Emulated games use configurable profiles for RetroArch and other emulators, incl
 - **Ratings:** Steam, GOG, Metacritic, and itch.io user ratings alongside OpenCritic critic scores, when available. The consensus weights the user category **60%** and critics **40%**; when only one category exists, it supplies the score. Sorting uses the precise score; stars display in half-star increments.
 - **Achievements:** Steam achievement progress and explicitly linked RetroAchievements profiles. Your emulator earns RetroAchievements; SlopLauncher displays progress.
 
+Library filters include sources and tags. Select multiple games with the selection controls, Ctrl-click, or Shift-click to update favorites, hidden status, collections, or banish them together. Banished games stay blocked from imports and scans; restore them from **Settings → Banished games** to fetch fresh metadata and artwork. Installed game files and personal notes are kept.
+
 External data is cached and refreshed through a bounded background queue. New games and identity changes are handled dynamically; failed providers leave the library usable. Data coverage and matching quality vary by service.
 
 ## Getting started
@@ -113,7 +115,7 @@ See [security and publication boundaries](SECURITY.md). Do not attach database f
 
 ## Project status
 
-Current source: **0.9.42**. Recent work includes consensus rating groups, cross-store personal flags, Amazon portrait artwork handling, and duplicate grouping in Hidden Games.
+Current source: **0.9.43**. Recent work includes consensus rating groups, cross-store personal flags, Amazon portrait artwork handling, and duplicate grouping in Hidden Games.
 
 Next priorities include testing on clean Windows installations, more robust store integrations, and signed distribution. Performance is a design priority, not a hardware-independent benchmark claim.
 

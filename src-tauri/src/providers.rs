@@ -116,6 +116,7 @@ impl Runtime {
     }
 }
 pub fn setup_schema(db: &Connection) -> Result<(), String> {
+    crate::banishment::setup(db)?;
     db.execute_batch("CREATE TABLE IF NOT EXISTS provider_secrets(id INTEGER PRIMARY KEY,data BLOB NOT NULL);CREATE TABLE IF NOT EXISTS provider_cache(provider TEXT NOT NULL,identity TEXT NOT NULL,revision INTEGER NOT NULL,data TEXT NOT NULL,expires INTEGER NOT NULL,PRIMARY KEY(provider,identity,revision));").map_err(|_|"Could not initialize provider storage".into())
 }
 
@@ -923,6 +924,8 @@ pub async fn enrich_provider(
     account_revision: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<ResultData, String> {
+    let _lease=crate::banishment::content_lease().await;
+    if crate::banishment::blocked(&*state.db.lock().map_err(|_|"Library is busy")?,&game){return Err("Game is banished".into());}
     if provider == "retroachievements" {
         return crate::retroachievements::lookup(&game, account_revision.unwrap_or(0), &state).await;
     }
