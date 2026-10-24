@@ -20,6 +20,13 @@ export function libraryCoverTargets(
   return targets;
 }
 
+export interface ArtworkCatalogRecord {
+  url: string;
+  path?: string;
+  source?: string;
+  retryAt?: number;
+}
+
 // Keep only URL/path strings for the whole library; decoded pixels remain bounded
 // by ArtworkLoader. Every async result is checked against the current URL set.
 export class ArtworkCatalog {
@@ -31,6 +38,7 @@ export class ArtworkCatalog {
   private retries = new Map<string, number>();
   private lookingUp = false;
   private active = new Set<string>();
+  private restoring = false;
   constructor(
     private options: {
       lookup: (urls: string[]) => Promise<[string, string][]>;
@@ -38,8 +46,43 @@ export class ArtworkCatalog {
       foregroundBusy: () => boolean;
       changed: () => void;
       now?: () => number;
+      persist?: (record: ArtworkCatalogRecord) => void;
     },
   ) {}
+  private record(url: string) {
+    if (!this.restoring)
+      this.options.persist?.({
+        url,
+        path: this.paths.get(url),
+        source: this.sources.get(url),
+        retryAt: this.retries.get(url),
+      });
+  }
+  restore(records: ArtworkCatalogRecord[]) {
+    this.restoring = true;
+    try {
+      for (const record of records) {
+        if (!this.urls.has(record.url)) continue;
+        const source = record.source ?? record.url;
+        if (
+          source !== record.url &&
+          !this.fallbacks.get(record.url)?.includes(source)
+        )
+          continue;
+        if (record.path) this.remember(record.url, record.path, source);
+        else if (
+          record.retryAt &&
+          record.retryAt > (this.options.now ?? Date.now)()
+        ) {
+          this.retries.set(record.url, record.retryAt);
+          this.unchecked.delete(record.url);
+        }
+      }
+    } finally {
+      this.restoring = false;
+      this.options.changed();
+    }
+  }
   reconcile(urls: string[], fallbacks = new Map<string, string[]>()) {
     const next = new Set(urls.filter(Boolean));
     for (const url of next) {
@@ -55,6 +98,7 @@ export class ArtworkCatalog {
           this.sources.delete(url);
           this.unchecked.add(url);
         }
+        if (this.urls.has(url)) this.record(url);
       }
     }
     this.fallbacks = new Map(fallbacks);
@@ -64,6 +108,7 @@ export class ArtworkCatalog {
         this.sources.delete(url);
         this.unchecked.delete(url);
         this.retries.delete(url);
+        this.record(url);
       }
     this.urls = next;
     this.options.changed();
@@ -80,16 +125,22 @@ export class ArtworkCatalog {
       (source !== url && !this.fallbacks.get(url)?.includes(source))
     )
       return;
+    const changed =
+      this.paths.get(url) !== path ||
+      this.sources.get(url) !== source ||
+      this.retries.has(url);
     this.paths.set(url, path);
     this.sources.set(url, source);
     this.unchecked.delete(url);
     this.retries.delete(url);
-    this.options.changed();
+    if (changed) this.record(url);
+    if (!this.restoring) this.options.changed();
   }
   invalidate(url: string) {
     this.paths.delete(url);
     this.sources.delete(url);
     this.retries.delete(url);
+    this.record(url);
     this.options.changed();
   }
   stats() {
@@ -198,8 +249,10 @@ export class ArtworkCatalog {
         !this.paths.has(url) &&
         JSON.stringify(candidates) ===
           JSON.stringify([url, ...(this.fallbacks.get(url) ?? [])])
-      )
+      ) {
         this.retries.set(url, (this.options.now ?? Date.now)() + 3_600_000);
+        this.record(url);
+      }
     } finally {
       this.active.delete(url);
       this.options.changed();

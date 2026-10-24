@@ -8,7 +8,11 @@ import {
   type BanishResult,
 } from "./banishment";
 import { writable } from "svelte/store";
-import { ArtworkCatalog, libraryCoverTargets } from "./artwork-catalog";
+import {
+  ArtworkCatalog,
+  libraryCoverTargets,
+  type ArtworkCatalogRecord,
+} from "./artwork-catalog";
 import { listen } from "@tauri-apps/api/event";
 import { currentResult } from "./enrichment-identity";
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
@@ -284,13 +288,47 @@ export async function manualGame(
   if (desktop) return invoke("add_manual", { title, executable, steamId });
   throw new Error("Add installed games from the desktop app.");
 }
+// Persist native paths, never WebView-specific asset URLs. Writes are small
+// ordered deltas, so a large import does not serialize the whole index repeatedly.
+const nativeCoverPaths = new Map<string, string>();
+let catalogInitialized = false;
+let suppressCatalogWrites = false;
+const catalogChanges = new Map<string, ArtworkCatalogRecord>();
+let catalogWriteTimer: ReturnType<typeof setTimeout> | undefined;
+let catalogWrites = Promise.resolve();
+function coverPath(path: string) {
+  const display = convertFileSrc(path);
+  nativeCoverPaths.set(display, path);
+  return display;
+}
+function persistCover(record: ArtworkCatalogRecord) {
+  if (!catalogInitialized || suppressCatalogWrites) return;
+  const path = record.path ? nativeCoverPaths.get(record.path) : undefined;
+  if (record.path && !path) return;
+  catalogChanges.set(record.url, { ...record, path });
+  if (!catalogWriteTimer)
+    catalogWriteTimer = setTimeout(flushCoverChanges, 500);
+}
+function flushCoverChanges() {
+  clearTimeout(catalogWriteTimer);
+  catalogWriteTimer = undefined;
+  const entries = [...catalogChanges.values()];
+  catalogChanges.clear();
+  if (!entries.length) return;
+  catalogWrites = catalogWrites
+    .catch(() => {})
+    .then(() => invoke<void>("save_cover_catalog", { entries }));
+  // Optional index failures never prevent browsing the already cached artwork.
+  void catalogWrites.catch(() => {});
+}
+
 const artworkLoader: ArtworkLoader = new ArtworkLoader({
   resolve: async (url, thumbnail) => {
     const prepared = thumbnail === 256 && artworkCatalog.peek(url);
     if (prepared) return prepared;
     if (!desktop) return url;
     const source = artworkCatalog.source(url);
-    const path = convertFileSrc(
+    const path = coverPath(
       await invoke<string>("cached_artwork", {
         url: source,
         thumbnail: thumbnail || null,
@@ -315,20 +353,27 @@ export const artworkCatalogState = writable({
 const artworkCatalog: ArtworkCatalog = new ArtworkCatalog({
   lookup: async (urls) =>
     (await invoke<[string, string][]>("artwork_catalog", { urls })).map(
-      ([url, path]): [string, string] => [url, convertFileSrc(path)],
+      ([url, path]): [string, string] => [url, coverPath(path)],
     ),
   prepare: async (url) =>
-    convertFileSrc(
-      await invoke<string>("cached_artwork", { url, thumbnail: 256 }),
-    ),
+    coverPath(await invoke<string>("cached_artwork", { url, thumbnail: 256 })),
   foregroundBusy: () =>
     artworkLoader.stats().active > 0 || artworkLoader.stats().queued > 0,
-  changed: () => artworkCatalogState.set(artworkCatalog.stats()),
+  changed: () => {
+    const stats = artworkCatalog.stats();
+    artworkCatalogState.set(stats);
+    if (!stats.working && stats.pending === 0) flushCoverChanges();
+  },
+  persist: persistCover,
 });
 export const setLibraryArtwork = (games: Game[]) => {
   if (!desktop) return;
   const targets = libraryCoverTargets(games);
+  // Empty views occur during startup, sample mode, shutdown and banishment.
+  // Clearing in-memory consumers must not delete the persisted browsing index.
+  suppressCatalogWrites = targets.size === 0;
   artworkCatalog.reconcile([...targets.keys()], targets);
+  suppressCatalogWrites = false;
 };
 // Warm only the initial viewport, and only from already cached local files.
 // A bounded deadline keeps damaged files or slow disks from delaying the library.
@@ -342,6 +387,21 @@ export async function prepareLibraryStart(games: Game[], visible: Game[]) {
   ].slice(0, 48);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const warm = (async () => {
+    try {
+      await catalogWrites.catch(() => {});
+      const records =
+        await invoke<ArtworkCatalogRecord[]>("load_cover_catalog");
+      artworkCatalog.restore(
+        (records ?? []).map((record) => ({
+          ...record,
+          path: record.path ? coverPath(record.path) : undefined,
+        })),
+      );
+    } catch {
+      /* Older/corrupt indexes fall back to local-file discovery once. */
+    } finally {
+      catalogInitialized = true;
+    }
     await artworkCatalog.prime(urls);
     const requests = urls
       .filter((url) => artworkCatalog.peek(url))
@@ -361,14 +421,14 @@ export async function prepareLibraryStart(games: Game[], visible: Game[]) {
     ]);
   } finally {
     clearTimeout(timeout);
-    void artworkCatalog.hydrate();
+    void warm.finally(() => artworkCatalog.hydrate()).catch(() => {});
   }
 }
 export const invalidatePreparedArtwork = (url: string) =>
   artworkCatalog.invalidate(url);
 if (desktop)
   setInterval(() => {
-    void artworkCatalog.step();
+    if (catalogInitialized) void artworkCatalog.step();
   }, 250);
 export const peekArtwork = (url: string, thumbnail = 0) =>
   artworkLoader.peek(url, thumbnail) ??
@@ -444,7 +504,9 @@ export async function unbanishGames(ids: string[]): Promise<BanishResult> {
 }
 export function forgetArtworkMemory() {
   artworkLoader.clear();
+  suppressCatalogWrites = true;
   artworkCatalog.reconcile([]);
+  suppressCatalogWrites = false;
 }
 
 export async function syncSteamHistory(force = false): Promise<HistorySync> {

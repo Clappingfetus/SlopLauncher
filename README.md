@@ -117,7 +117,7 @@ See [security and publication boundaries](SECURITY.md). Do not attach database f
 
 ## Project status
 
-Current source: **0.9.46**.
+Current source: **0.9.47**. Cover paths, resolved fallbacks, and failed-download retry deadlines now persist in SQLite. Restarts restore the cover index directly; new and invalidated entries are prepared as needed.
 
 Metadata gets one automatic lookup pass for newly discovered or rematched games. Existing libraries stay quiet on restart. Use the circular refresh button beside Metadata in the bottom bar to check games with gaps manually, including when automatic lookup is disabled. Startup warms the first screen from cached thumbnails before showing cards; remaining cached paths load in bounded batches without waiting for network downloads.
 

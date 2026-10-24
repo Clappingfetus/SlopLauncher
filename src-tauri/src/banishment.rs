@@ -381,6 +381,9 @@ pub fn banish(ids: &[String], db: &mut Connection, dir: &Path) -> Result<ResultS
         .version_preferences
         .retain(|_, p| !targets.contains(&p.game_id));
     store_settings(&settings, &tx)?;
+    for url in &purge {
+        tx.execute("DELETE FROM cover_catalog WHERE url=?1 OR source=?1",[url]).map_err(|_|"Could not remove banished cover index")?;
+    }
     remove_files(dir, &purge)?;
     // Old cache filenames are hashes without ownership. Remove orphaned managed
     // images too, preserving every size referenced by another live game.
@@ -548,7 +551,13 @@ mod tests {
             [],
         )
         .unwrap();
+        for (url,source) in [(private,private),("https://cdn2.steamgriddb.com/grid/alias.png",private),(shared,shared)] {
+            db.execute("INSERT INTO cover_catalog(url,source,file)VALUES(?1,?2,'0123456789abcdef.png')",params![url,source]).unwrap();
+        }
         let result = banish(&[a.id.clone()], &mut db, &dir).unwrap();
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM cover_catalog",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        assert_eq!(db.query_row("SELECT url FROM cover_catalog",[],|r|r.get::<_,String>(0)).unwrap(),shared);
+
         assert_eq!(result.library.games.len(), 1);
         assert_eq!(result.banished.len(), 2);
         assert!(!original.exists());

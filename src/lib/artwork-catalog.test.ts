@@ -279,3 +279,104 @@ it("rejects a stale startup path after the game artwork is removed", async () =>
   expect(catalog.peek("old")).toBeUndefined();
   expect(catalog.stats().prepared).toBe(0);
 });
+it("restores prepared paths, fallbacks and failure deadlines without another lookup or download", async () => {
+  let now = 1000;
+  const stored = new Map<
+    string,
+    import("./artwork-catalog").ArtworkCatalogRecord
+  >();
+  const lookup = vi.fn(async (urls: string[]) =>
+    urls
+      .filter((u) => u === "fallback")
+      .map((u) => [u, "disk:fallback"] as [string, string]),
+  );
+  const prepare = vi.fn(async () => {
+    throw Error("Offline");
+  });
+  const persist = vi.fn((r: import("./artwork-catalog").ArtworkCatalogRecord) =>
+    stored.set(r.url, structuredClone(r)),
+  );
+  const options = {
+    lookup,
+    prepare,
+    foregroundBusy: () => false,
+    changed: () => {},
+    now: () => now,
+    persist,
+  };
+  const first = new ArtworkCatalog(options);
+  first.reconcile(["primary", "failed"], new Map([["primary", ["fallback"]]]));
+  await first.hydrate();
+  await first.step();
+  expect(first.stats().retrying).toBe(1);
+  const saved = [...stored.values()];
+  lookup.mockClear();
+  prepare.mockClear();
+  persist.mockClear();
+  const reopened = new ArtworkCatalog(options);
+  reopened.reconcile(
+    ["primary", "failed"],
+    new Map([["primary", ["fallback"]]]),
+  );
+  reopened.restore(JSON.parse(JSON.stringify(saved)));
+  await reopened.hydrate();
+  await reopened.step();
+  expect(reopened.peek("primary")).toBe("disk:fallback");
+  expect(reopened.source("primary")).toBe("fallback");
+  expect(reopened.stats().retrying).toBe(1);
+  expect(lookup).not.toHaveBeenCalled();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(persist).not.toHaveBeenCalled();
+  now += 3_600_001;
+  await reopened.step();
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(reopened.peek("primary")).toBe("disk:fallback");
+});
+it("only discovers late covers and repairs invalidated entries after a restored cache", async () => {
+  const lookup = vi.fn(async () => []);
+  const prepare = vi.fn(async (u: string) => `disk:${u}`);
+  const changes: any[] = [];
+  const catalog = new ArtworkCatalog({
+    lookup,
+    prepare,
+    foregroundBusy: () => false,
+    changed: () => {},
+    persist: (r) => changes.push(r),
+  });
+  catalog.reconcile(["old", "keep"]);
+  catalog.restore([
+    { url: "old", path: "old-disk" },
+    { url: "keep", path: "keep-disk" },
+  ]);
+  catalog.reconcile(["old", "keep", "late"]);
+  await catalog.hydrate();
+  expect(lookup.mock.calls).toEqual([[["late"]]]);
+  await catalog.step();
+  expect(prepare.mock.calls).toEqual([["late"]]);
+  catalog.invalidate("old");
+  await catalog.step();
+  expect(prepare.mock.calls).toEqual([["late"], ["old"]]);
+  expect(catalog.peek("keep")).toBe("keep-disk");
+  catalog.reconcile(["keep", "late"]);
+  expect([...changes].reverse().find((r) => r.url === "old")).toMatchObject({
+    url: "old",
+    path: undefined,
+  });
+});
+it("ignores restored paths when artwork identity or its permitted fallback changed", async () => {
+  const lookup = vi.fn(async () => []);
+  const catalog = new ArtworkCatalog({
+    lookup,
+    prepare: async (u) => u,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["current"], new Map([["current", ["new-fallback"]]]));
+  catalog.restore([
+    { url: "removed", path: "removed-path" },
+    { url: "current", path: "stale-path", source: "old-fallback" },
+  ]);
+  expect(catalog.stats().prepared).toBe(0);
+  await catalog.hydrate();
+  expect(lookup).toHaveBeenCalledWith(["current", "new-fallback"]);
+});

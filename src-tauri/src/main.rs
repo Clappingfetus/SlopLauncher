@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod accounts;
 mod play_activity;
+mod cover_catalog;
 mod banishment;
 mod ratings;
 mod achievements;
@@ -312,6 +313,7 @@ fn db_open(path: &Path) -> Result<Connection, String> {
     let db = Connection::open(path).map_err(err)?;
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS games(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS metadata(app_id INTEGER PRIMARY KEY,data TEXT NOT NULL,updated_at INTEGER NOT NULL); PRAGMA user_version=1;").map_err(err)?;
     banishment::setup(&db)?;
+    cover_catalog::setup(&db)?;
     providers::setup_schema(&db)?;
     accounts::setup_schema(&db)?;
     Ok(db)
@@ -1157,6 +1159,8 @@ fn main() {
             scan_installed,
             cached_artwork,
             artwork_catalog,
+            cover_catalog::load_cover_catalog,
+            cover_catalog::save_cover_catalog,
             choose_executable,
             choose_library_folder,
             add_manual,
