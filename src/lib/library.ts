@@ -8,13 +8,13 @@ import type { AccountSource, Game, GameCollection, Source } from "./types";
 import { isCollectionFilter, type CollectionFilter } from "./collections";
 import { tagKey } from "./tags";
 import { searchIndex, searchText } from "./search-index";
-import { mainExtraHours } from "./game-facts";
+import { mainExtraHours, releaseSpan } from "./game-facts";
 import { artworkIdentity } from "./artwork";
 export const sortOptions = [
   ["title", "Title A–Z"],
   ["recent", "Recently played"],
   ["added", "Recently added"],
-  ["year", "Release year"],
+  ["year", "Release date"],
   ["hltb-asc", "Main + Extras · shortest first"],
   ["hltb-desc", "Main + Extras · longest first"],
   ["rating-desc", "Consensus rating · highest first"],
@@ -61,7 +61,9 @@ export function filterGames(
     ? new Map(result.map((g) => [g.id, mainExtraHours(g)]))
     : sort.startsWith("rating-")
       ? new Map(result.map((g) => [g.id, consensusScore(g)]))
-      : undefined;
+      : sort === "year"
+        ? new Map(result.map((g) => [g.id, releaseSpan(g)?.[0]]))
+        : undefined;
   return result.sort((a, b) =>
     times
       ? (times.get(a.id) === undefined
@@ -71,7 +73,7 @@ export function filterGames(
           : times.get(b.id) === undefined
             ? -1
             : (times.get(a.id)! - times.get(b.id)!) *
-              (sort.endsWith("-desc") ? -1 : 1)) ||
+              (sort === "year" || sort.endsWith("-desc") ? -1 : 1)) ||
         a.title.localeCompare(b.title)
       : sort === "recent"
         ? (recentSortAt(b, activitySource) ?? 0) -
@@ -263,6 +265,11 @@ export function mergeOwnedLibrary(
     if (!found.metadataLocked && game.hero) found.hero = game.hero;
     if (!found.metadataLocked && !found.description && game.description)
       found.description = game.description;
+    if (!found.metadataLocked && game.releasedAt !== undefined) {
+      found.releasedAt = game.releasedAt;
+      found.year = game.year ?? new Date(game.releasedAt).getUTCFullYear();
+    } else if (!found.metadataLocked && !found.year && game.year)
+      found.year = game.year;
   }
   return retainUnchanged(existing, result);
 }

@@ -178,7 +178,7 @@ pub async fn steam(state: &AppState, id: u32) -> Result<Value, String> {
     let tags = labels(metadata.genres.iter().cloned().chain(tags));
     Ok(
         json!({"cover":metadata.cover,"hero":metadata.hero,"summary":metadata.description,
-        "developer":metadata.developer,"publisher":metadata.publisher,"year":metadata.year,
+        "developer":metadata.developer,"publisher":metadata.publisher,"year":metadata.year,"releasedAt":metadata.released_at,
         "screenshots":metadata.screenshots,"genres":metadata.genres,"tags":tags,
         "url":format!("https://store.steampowered.com/app/{id}/")}),
     )

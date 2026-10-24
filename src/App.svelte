@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { releaseLabel, exactReleaseDate } from "./lib/release-date";
   import {
     baselineMetadata,
     metadataAttemptPatch,
@@ -246,6 +247,11 @@
     (p.startsWith("reviews-") && ratingDetailIds.has(g.id));
   const enrichmentQueue = new EnrichmentQueue({
     onIdle: () => manualMetadata.clear(),
+    refreshCached: (g, p) =>
+      manualMetadata.allows(g, p) &&
+      ["steam", "stores", "igdb", "screenscraper"].includes(p) &&
+      exactReleaseDate(presentCached(g, providers.revision).releasedAt) ===
+        undefined,
     shouldFetch: (g, p) =>
       p === "achievements" ||
       p === "retroachievements" ||
@@ -1759,6 +1765,10 @@
         publisher: m.publisher,
         genres: m.genres,
         year: m.year,
+        releasedAt:
+          latest.metadataId === id
+            ? (m.releasedAt ?? latest.releasedAt)
+            : m.releasedAt,
         screenshots: m.screenshots,
       };
       if (!latest.metadataLocked) updateGame(g.id, patch);
@@ -2660,8 +2670,9 @@
             </div>
             <div class="detail-identity">
               <div class="detail-tags">
-                {selected.genres.slice(0, 3).join("  ·  ")}{selected.year
-                  ? `  /  ${selected.year}`
+                {selected.genres.slice(0, 3).join("  ·  ")}{selected.year ||
+                selected.releasedAt !== undefined
+                  ? `  /  ${releaseLabel(selected)}`
                   : ""}
               </div>
               <h1>{selected.title}</h1>
@@ -2895,8 +2906,11 @@
                 >
               </div>
               <div class="fact">
-                <span>Release year</span><strong
-                  >{selected.year ?? "Not available"}</strong
+                <span>Release date</span><strong
+                  title={selected.releasedAt === undefined
+                    ? "Only the release year is known."
+                    : "Release date reported by the current metadata source."}
+                  >{releaseLabel(selected)}</strong
                 >
               </div>
               <label class="fact status-fact"

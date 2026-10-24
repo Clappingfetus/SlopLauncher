@@ -932,6 +932,7 @@ fn epic_game(v: &Value, meta: &Value, a: &Account) -> Option<Game> {
     );
     g.copies[0].store_page =
         crate::stores::epic_page(id, meta).or_else(|| crate::stores::epic_page(id, &v["metadata"]));
+    if let Some(release) = crate::release_dates::value(&meta["releaseDate"]) {g.year=Some(release.year);g.released_at=release.at;}
     let images = meta["keyImages"].as_array();
     let art = |kind: &str| {
         images
@@ -1030,6 +1031,7 @@ fn gog_game(id: &str, meta: &Value, a: &Account) -> Game {
         .unwrap_or_else(|| format!("GOG game {id}"));
     let mut g = owned_game("gog", id, &title, a);
     g.copies[0].store_page = crate::stores::gog_page(id, meta);
+    if let Some(release) = crate::release_dates::gog(meta) {g.year=Some(release.year);g.released_at=release.at;}
     let image = meta["images"]["boxArt"]
         .as_str()
         .or_else(|| meta["images"]["boxart"].as_str());

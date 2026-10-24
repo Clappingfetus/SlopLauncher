@@ -354,13 +354,13 @@ pub(crate) fn cache_identity(g: &Game, provider: &str) -> String {
     copies.sort();
     let text = serde_json::to_string(&(
         if provider == "steam" || provider == "stores" {
-            3
+            4
         } else if provider == "steamgriddb" {
             4
         } else if provider == "pcgw" {
             4
         } else if provider == "igdb" {
-            3
+            4
         } else {
             2
         },
@@ -707,7 +707,7 @@ fn igdb_image(id: Option<&str>, size: &str) -> Option<String> {
     })
     .map(|id| format!("https://images.igdb.com/igdb/image/upload/{size}/{id}.jpg"))
 }
-fn parse_igdb(game: &Value) -> Value {
+fn parse_igdb(game: &Value, platform: Option<u64>) -> Value {
     let names = |role: &str| {
         game["involved_companies"]
             .as_array()
@@ -732,18 +732,9 @@ fn parse_igdb(game: &Value) -> Value {
         .and_then(|a| a.first())
         .and_then(|a| igdb_image(a["image_id"].as_str(), "t_1080p"))
         .or_else(|| screenshots.first().cloned());
-    let year = game["first_release_date"].as_i64().map(unix_year);
-    json!({"id":game["id"],"title":game["name"],"url":game["url"],"summary":game["summary"].as_str().filter(|s|!s.is_empty()),"cover":igdb_image(game["cover"]["image_id"].as_str(),"t_cover_big"),"hero":hero,"screenshots":screenshots,"genres":game["genres"].as_array().map(|a|a.iter().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>()),"tags":crate::tags::igdb(game),"developer":names("developer"),"publisher":names("publisher"),"year":year,"releasedAt":game["first_release_date"].as_u64().and_then(|v|v.checked_mul(1000))})
-}
-fn unix_year(seconds: i64) -> i64 {
-    let z = seconds.div_euclid(86400) + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    y + if mp < 10 { 0 } else { 1 }
+    let release = crate::release_dates::igdb(game,platform);
+    let year = release.map(|r|r.year);
+    json!({"id":game["id"],"title":game["name"],"url":game["url"],"summary":game["summary"].as_str().filter(|s|!s.is_empty()),"cover":igdb_image(game["cover"]["image_id"].as_str(),"t_cover_big"),"hero":hero,"screenshots":screenshots,"genres":game["genres"].as_array().map(|a|a.iter().filter_map(|v|v["name"].as_str()).collect::<Vec<_>>()),"tags":crate::tags::igdb(game),"developer":names("developer"),"publisher":names("publisher"),"year":year,"releasedAt":release.and_then(|r|r.at)})
 }
 async fn igdb(g: &Game, state: &AppState, c: &Credentials) -> Result<ResultData, String> {
     if c.igdb_client_id.is_empty() || c.igdb_client_secret.is_empty() {
@@ -777,7 +768,7 @@ async fn igdb(g: &Game, state: &AppState, c: &Credentials) -> Result<ResultData,
             });
         }
     }
-    let fields="id,name,summary,first_release_date,cover.image_id,artworks.image_id,screenshots.image_id,genres.name,themes.name,keywords.name,game_modes.name,player_perspectives.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,url,platforms.id,platforms.name";
+    let fields="id,name,summary,first_release_date,release_dates.date,release_dates.y,release_dates.m,release_dates.d,release_dates.category,release_dates.date_format.format,release_dates.platform,cover.image_id,artworks.image_id,screenshots.image_id,genres.name,themes.name,keywords.name,game_modes.name,player_perspectives.name,involved_companies.company.name,involved_companies.developer,involved_companies.publisher,url,platforms.id,platforms.name";
     let query = if let Some(id) = id {
         format!("fields {fields}; where id = {id}; limit 1;")
     } else {
@@ -808,7 +799,7 @@ async fn igdb(g: &Game, state: &AppState, c: &Credentials) -> Result<ResultData,
     if matches.len() != 1 {
         return Ok(result(if matches.len()>1{"needs-match"}else{"not-found"},None,Some("IGDB has no unique match for this title and platform. An explicit IGDB ID can be set in Game Details.")));
     }
-    Ok(result("ready", Some(parse_igdb(matches[0])), None))
+    Ok(result("ready", Some(parse_igdb(matches[0], if crate::emulation::platform(g).is_some() {crate::emulation::platform(g).and_then(crate::emulation::platform_id)} else {Some(6)})), None))
 }
 
 async fn sgdb_get(state: &AppState, c: &Credentials, path: &str) -> Result<Value, String> {
@@ -1235,8 +1226,8 @@ mod tests {
     }
     #[test]
     fn correct_gregorian_year() {
-        assert_eq!(unix_year(0), 1970);
-        assert_eq!(unix_year(1645660800), 2022);
+        assert_eq!(crate::release_dates::unix_year(0), 1970);
+        assert_eq!(crate::release_dates::unix_year(1645660800), 2022);
     }
     #[cfg(windows)]
     #[test]

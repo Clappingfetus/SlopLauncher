@@ -328,6 +328,7 @@ export interface StoreMetadata {
   publisher: string;
   genres: string[];
   year?: number;
+  releasedAt?: number;
   cover: string;
   hero: string;
   screenshots: string[];

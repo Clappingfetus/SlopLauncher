@@ -33,6 +33,7 @@ const complete = (): Game => ({
   developer: "Studio",
   publisher: "Publisher",
   year: 2026,
+  releasedAt: Date.UTC(2026, 0, 2),
   genres: ["Action"],
   screenshots: ["shot"],
   notes: "Personal",

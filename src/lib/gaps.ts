@@ -1,3 +1,4 @@
+import { exactReleaseDate } from "./release-date";
 import { providerIds } from "./types";
 import type { Game, ProviderId, ProviderStatus } from "./types";
 import { presentGame, currentResult, steamId } from "./enrichment";
@@ -11,7 +12,7 @@ export function missingFields(game: Game) {
     !game.description?.trim() && "description",
     !game.developer?.trim() && "developer",
     !game.publisher?.trim() && "publisher",
-    !game.year && "release year",
+    exactReleaseDate(game.releasedAt) === undefined && "release date",
     !game.genres.length && "genres",
     !game.screenshots.length && "screenshots",
   ].filter(Boolean) as string[];

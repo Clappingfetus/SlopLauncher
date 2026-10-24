@@ -205,9 +205,10 @@ fn parse(game: &Value, system_id: u64) -> Result<Value, String> {
     genres.dedup();
     let date = localized(&game["dates"], "region", &["us", "wor", "eu", "jp"])
         .or_else(|| text(&game["dates"]["date_us"]).map(str::to_owned));
-    let year = date.and_then(|s| s.get(..4)?.parse::<u32>().ok());
+    let release = date.as_deref().and_then(crate::release_dates::text);
+    let year = release.map(|r|r.year);
     Ok(
-        json!({"id":id,"url":format!("https://www.screenscraper.fr/gameinfos.php?plateforme={system_id}&gameid={id}"),"title":localized(&game["noms"],"region",&["us","wor","eu","jp"]).or_else(||names(game).into_iter().next()),"summary":localized(&game["synopsis"],"langue",&["en","fr"]).or_else(||text(&game["synopsis"]["synopsis_en"]).map(str::to_owned)).map(|s|crate::plain_html(&s)),"developer":text(&game["developpeur"]),"publisher":text(&game["editeur"]),"year":year,"genres":genres,"tags":genres,"cover":media(game,system_id,id,"box-2D").or_else(||media(game,system_id,id,"box-3D")),"hero":media(game,system_id,id,"fanart")}),
+        json!({"id":id,"url":format!("https://www.screenscraper.fr/gameinfos.php?plateforme={system_id}&gameid={id}"),"title":localized(&game["noms"],"region",&["us","wor","eu","jp"]).or_else(||names(game).into_iter().next()),"summary":localized(&game["synopsis"],"langue",&["en","fr"]).or_else(||text(&game["synopsis"]["synopsis_en"]).map(str::to_owned)).map(|s|crate::plain_html(&s)),"developer":text(&game["developpeur"]),"publisher":text(&game["editeur"]),"year":year,"releasedAt":release.and_then(|r|r.at),"genres":genres,"tags":genres,"cover":media(game,system_id,id,"box-2D").or_else(||media(game,system_id,id,"box-3D")),"hero":media(game,system_id,id,"fanart")}),
     )
 }
 async fn request(

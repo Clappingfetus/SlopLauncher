@@ -1,3 +1,4 @@
+import { exactReleaseDate } from "./release-date";
 import {
   providerIds,
   type Game,
@@ -109,14 +110,35 @@ export function presentGame(game: Game, revision = 0): Game {
         ? currentResult(game, "steam", revision)?.data
         : undefined
     : undefined;
-  const releaseYear = game.year || ss?.year || native?.year || igdb?.year;
+  const storeDates = !game.metadataLocked
+    ? [
+        ss,
+        game.copies.some((c) => c.source === "steam") ||
+        (game.copies.every((c) => c.source === "manual") && !!steamId(game))
+          ? currentResult(game, "steam", revision)?.data
+          : undefined,
+        game.copies.some((c) => c.source === "gog")
+          ? currentResult(game, "stores", revision)?.data
+          : undefined,
+      ]
+    : [];
+  const nativeDate = storeDates
+    .map((data) => exactReleaseDate(data?.releasedAt))
+    .find((at) => at !== undefined);
+  const releaseYear =
+    nativeDate !== undefined
+      ? new Date(nativeDate).getUTCFullYear()
+      : game.year || ss?.year || native?.year || igdb?.year;
   const releasedAt =
-    game.releasedAt ??
-    [ss?.releasedAt, native?.releasedAt, igdb?.releasedAt].find(
-      (time) =>
-        typeof time === "number" &&
-        (!releaseYear || new Date(time).getUTCFullYear() === releaseYear),
-    );
+    exactReleaseDate(game.releasedAt) ??
+    nativeDate ??
+    [igdb?.releasedAt]
+      .map(exactReleaseDate)
+      .find(
+        (at) =>
+          at !== undefined &&
+          (!releaseYear || new Date(at).getUTCFullYear() === releaseYear),
+      );
   return {
     ...game,
     tags,
@@ -141,7 +163,10 @@ export function presentGame(game: Game, revision = 0): Game {
       game.developer || ss?.developer || native?.developer || igdb?.developer,
     publisher:
       game.publisher || ss?.publisher || native?.publisher || igdb?.publisher,
-    year: game.year || ss?.year || native?.year || igdb?.year,
+    year:
+      releasedAt !== undefined
+        ? new Date(releasedAt).getUTCFullYear()
+        : releaseYear,
     releasedAt,
     genres: game.genres.length
       ? game.genres
@@ -204,6 +229,7 @@ interface QueueOptions {
   enabled?: (provider: ProviderId, game: Game) => boolean;
   order?: (provider: ProviderId) => number;
   shouldFetch?: (game: Game, provider: ProviderId) => boolean;
+  refreshCached?: (game: Game, provider: ProviderId) => boolean;
   started?: (game: Game, provider: ProviderId) => void;
   onProgress?: (progress: EnrichmentProgress) => void;
   onIdle?: () => void;
@@ -379,7 +405,14 @@ export class EnrichmentQueue {
         this.providerRevision(provider),
       );
       const prior = game.enrichment?.[provider];
-      if (prior?.fingerprint === fingerprint && prior.nextCheckAt > time) {
+      if (
+        prior?.fingerprint === fingerprint &&
+        prior.nextCheckAt > time &&
+        !(
+          prior.status === "ready" &&
+          this.options.refreshCached?.(game, provider)
+        )
+      ) {
         this.options.started?.(game, provider);
         expires = Math.min(expires, prior.nextCheckAt);
         continue;

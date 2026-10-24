@@ -165,11 +165,11 @@ fn gog_metadata(id: &str, metadata: &Value) -> Result<Value, String> {
         .take(12)
         .filter_map(|v| image(&v["image"]).or_else(|| image(v)))
         .collect();
-    Ok(
-        json!({"summary":description,"cover":image(&metadata["images"]["boxArt"]).or_else(|| image(&metadata["images"]["boxart"])),
+    let mut data = json!({"summary":description,"cover":image(&metadata["images"]["boxArt"]).or_else(|| image(&metadata["images"]["boxart"])),
         "hero":image(&metadata["images"]["background"]),"genres":genres,"screenshots":screenshots,
-        "developer":text(&metadata["developer"]),"publisher":text(&metadata["publisher"])}),
-    )
+        "developer":text(&metadata["developer"]),"publisher":text(&metadata["publisher"])});
+    crate::release_dates::attach(&mut data, crate::release_dates::gog(metadata));
+    Ok(data)
 }
 
 #[cfg(test)]
@@ -177,8 +177,9 @@ mod tests {
     use super::*;
     #[test]
     fn native_gog_gaps_are_bound_to_product_and_safe_images() {
-        let data = json!({"id":42,"images":{"boxArt":"//images.gog-statics.com/cover.jpg","background":"https://evil.invalid/a.jpg"},"description":{"lead":"<p>Game story</p>"},"developer":"Studio","publisher":"Publisher","genres":[{"name":"Adventure"}],"screenshots":[{"image":"https://images.gog-statics.com/shot.jpg"}]});
+        let data = json!({"id":42,"release_date":"2019-11-10T00:00:00+0000","images":{"boxArt":"//images.gog-statics.com/cover.jpg","background":"https://evil.invalid/a.jpg"},"description":{"lead":"<p>Game story</p>"},"developer":"Studio","publisher":"Publisher","genres":[{"name":"Adventure"}],"screenshots":[{"image":"https://images.gog-statics.com/shot.jpg"}]});
         let parsed = gog_metadata("42", &data).unwrap();
+        assert_eq!(parsed["releasedAt"],crate::release_dates::day(2019,11,10).unwrap());
         assert_eq!(parsed["cover"], "https://images.gog-statics.com/cover.jpg");
         assert!(parsed["hero"].is_null());
         assert_eq!(parsed["summary"], "Game story");

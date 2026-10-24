@@ -2,6 +2,7 @@
 mod accounts;
 mod play_activity;
 mod cover_catalog;
+mod release_dates;
 mod banishment;
 mod ratings;
 mod achievements;
@@ -207,6 +208,10 @@ struct StoreMetadata {
     publisher: String,
     genres: Vec<String>,
     year: Option<u32>,
+    #[serde(default)]
+    released_at: Option<u64>,
+    #[serde(default)]
+    release_date_version: u8,
     cover: String,
     hero: String,
     screenshots: Vec<String>,
@@ -1016,7 +1021,7 @@ async fn fetch_steam_metadata(app_id: u32, state: &AppState) -> Result<StoreMeta
         ) {
             if now().saturating_sub(at) < 30 * 86400000 {
                 if let Ok(m) = serde_json::from_str::<StoreMetadata>(&s) {
-                    if m.cover.contains("/store_item_assets/") {
+                    if m.cover.contains("/store_item_assets/") && m.release_date_version >= 1 {
                         return Ok(m);
                     }
                 }
@@ -1057,10 +1062,8 @@ async fn fetch_steam_metadata(app_id: u32, state: &AppState) -> Result<StoreMeta
             .unwrap_or_default()
     };
     let date = d["release_date"]["date"].as_str().unwrap_or("");
-    let year = date
-        .split(|c: char| !c.is_ascii_digit())
-        .filter_map(|s| s.parse::<u32>().ok())
-        .find(|y| *y >= 1970 && *y <= 2200);
+    let release = release_dates::text(date);
+    let year = release.map(|r|r.year);
     let mut m = StoreMetadata {
         title: d["name"].as_str().unwrap_or("").into(),
         description: plain_html(d["short_description"].as_str().unwrap_or("")),
@@ -1075,6 +1078,8 @@ async fn fetch_steam_metadata(app_id: u32, state: &AppState) -> Result<StoreMeta
             })
             .unwrap_or_default(),
         year,
+        released_at: release.and_then(|r|r.at),
+        release_date_version: 1,
         cover: steam_cover(&app_id.to_string()),
         hero: steam_hero(&app_id.to_string()),
         screenshots: d["screenshots"]

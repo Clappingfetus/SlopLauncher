@@ -24,6 +24,7 @@ Run `npm run check`, `npm test`, and relevant native tests before submitting cha
 | UI and persistence | `src/App.svelte`, `src/lib/backend.ts` | UI edits are optimistic; ordered writes keep older snapshots from overwriting newer edits. Svelte snapshots already detach reactive data. |
 | Library identity and versions | `src/lib/versions.ts`, `src/lib/duplicate-flags.ts` | Duplicate grouping is presentation-only. Keep original copies and reject conflicting catalog identities. Timestamp personal choices so later imports cannot restore old flags. |
 | Metadata lifecycle | `src/lib/enrichment.ts`, `src/lib/enrichment-identity.ts`, `src/lib/metadata-scan.ts` | Recheck identity and queue generation after asynchronous work. Cache results with provenance and retry times. |
+| Release dates | `src-tauri/src/release_dates.rs`, `src/lib/release-date.ts` | Preserve calendar dates in UTC. Use the relevant platform and retain year-only precision when the day is unknown. |
 | Artwork performance | `src/lib/artwork-loader.ts`, `src/lib/artwork-window.ts` | Visible users pin decoded entries; lookahead is bounded. Settle canceled promises and avoid decoding abandoned work. |
 | Live Collections | `src/lib/grouping.ts`, `src/lib/collections.ts` | Evaluate against current games and time. Several collections can share a rule evaluation within one pass. |
 | Store connections | `src-tauri/src/accounts.rs`, `src-tauri/src/itch.rs` | Native code owns account tokens. Failed or partial imports must not erase the library. |
