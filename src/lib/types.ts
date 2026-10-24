@@ -39,6 +39,7 @@ export interface StorePage {
   url: string;
 }
 export interface Game {
+  metadataScan?: { identity: string; attempted: ProviderId[] };
   /** Derived from current duplicate copies; not persisted as personal metadata. */
   reviewSummary?: import("./ratings").RatingRow[];
   id: string;

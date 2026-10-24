@@ -101,6 +101,8 @@ pub struct Game {
     pub steam_activity:Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launcher_activity:Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_scan:Option<serde_json::Value>,
     pub preferred_copy: Option<String>,
     pub metadata_id: Option<u32>,
     pub metadata_locked: Option<bool>,
@@ -488,9 +490,9 @@ fn store_enrichment(games: &[Game], db: &mut Connection) -> Result<(), String> {
         {
             continue;
         }
-        let Some(records) = incoming.enrichment.as_ref().and_then(|v| v.as_object()) else {
-            continue;
-        };
+        if let Some(scan) = &incoming.metadata_scan { document["metadataScan"] = scan.clone(); }
+        let empty = serde_json::Map::new();
+        let records = incoming.enrichment.as_ref().and_then(|v| v.as_object()).unwrap_or(&empty);
         let achievement_identity = providers::cache_identity(&game, "achievements");
         let retro_identity = providers::cache_identity(&game, "retroachievements");
         let review_copies_match = serde_json::to_string(&game.copies.iter().map(|c| &c.store_page).collect::<Vec<_>>()).ok() == serde_json::to_string(&incoming.copies.iter().map(|c| &c.store_page).collect::<Vec<_>>()).ok();
@@ -845,6 +847,7 @@ fn add_manual(title: String, executable: String, steam_id: Option<u32>) -> Resul
         last_played: None,
         steam_activity:None,
         launcher_activity:None,
+        metadata_scan:None,
         preferred_copy: None,
         metadata_id: steam_id,
         metadata_locked: None,
@@ -1121,7 +1124,12 @@ fn main() {
             app.asset_protocol_scope()
                 .allow_directory(&artwork_dir, true)?;
             let trim_dir = artwork_dir.clone();
-            tauri::async_runtime::spawn_blocking(move || artwork::trim_cache(&trim_dir));
+            // Cache housekeeping must not compete with the first library read
+            // and thumbnail display on a cold disk. Never block an async worker.
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                let _ = tauri::async_runtime::spawn_blocking(move || artwork::trim_cache(&trim_dir)).await;
+            });
             let client = reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
                 .timeout(Duration::from_secs(20))
@@ -1683,4 +1691,21 @@ mod tests {
         assert!(saved.enrichment.unwrap().get("retroachievements").is_none());
         assert_eq!(saved.notes,"Keep");
     }
+    #[test]
+    fn metadata_attempt_ledger_saves_without_provider_data_and_rejects_rematches() {
+        let mut db = db_open(std::path::Path::new(":memory:")).unwrap();
+        let raw = serde_json::json!({"id":"ledger","title":"Game","copies":[],"genres":[],"screenshots":[],"favorite":true,"notes":"Keep","status":"playing","addedAt":1,"futureField":42});
+        db.execute("INSERT INTO games(id,data)VALUES('ledger',?1)",[raw.to_string()]).unwrap();
+        let mut incoming:Game = serde_json::from_value(raw).unwrap();
+        incoming.metadata_scan=Some(serde_json::json!({"identity":"current","attempted":["steam","igdb"]}));
+        store_enrichment(&[incoming.clone()],&mut db).unwrap();
+        let read = |db:&Connection| -> serde_json::Value {serde_json::from_str(&db.query_row("SELECT data FROM games WHERE id='ledger'",[],|r|r.get::<_,String>(0)).unwrap()).unwrap()};
+        let saved=read(&db);
+        assert_eq!(saved["metadataScan"]["attempted"],serde_json::json!(["steam","igdb"]));
+        assert_eq!(saved["notes"],"Keep"); assert_eq!(saved["futureField"],42);
+        let restored:Game=serde_json::from_value(saved).unwrap();assert!(restored.metadata_scan.is_some());
+        incoming.title="Different identity".into();incoming.metadata_scan=Some(serde_json::json!({"identity":"stale","attempted":[]}));
+        store_enrichment(&[incoming],&mut db).unwrap();assert_eq!(read(&db)["metadataScan"]["identity"],"current");
+    }
+
 }

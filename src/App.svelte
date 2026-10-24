@@ -1,9 +1,15 @@
 <script lang="ts">
+  import {
+    baselineMetadata,
+    metadataAttemptPatch,
+    needsDiscovery,
+    recordMetadataAttempt,
+    ManualMetadataScan,
+  } from "./lib/metadata-scan";
   import { steamId } from "./lib/enrichment-identity";
   import PlayActivity from "./components/PlayActivity.svelte";
   import { applySteamHistory, type ActivitySource } from "./lib/play-activity";
   import ReviewRatings from "./components/ReviewRatings.svelte";
-  import { needsAmazonPortraitRefresh } from "./lib/store-artwork";
   import { version as appVersion } from "../package.json";
   import { onMount, tick, untrack } from "svelte";
   import {
@@ -122,6 +128,7 @@
     sources,
     defaultSettings,
     type ProviderStatus,
+    type ProviderId,
     type ArtworkAsset,
     type ArtworkChoice,
   } from "./lib/types";
@@ -225,9 +232,38 @@
   const gapEnabled = createGapPolicy(presentCached);
   let gameIndex = $derived(new Map(games.map((g) => [g.id, g])));
   const dirtyEnrichment = new Set<string>();
+  const dirtyMetadataAttempts = new Set<string>();
   let lastEnrichmentSave = 0;
   let restoringIds = $state.raw(new Set<string>());
+  const manualMetadata = new ManualMetadataScan();
+  let manualMetadataRevision = $state(0);
+  const explicitMetadata = (g: Game, p: ProviderId) =>
+    (modal === "metadata" && selectedId === g.id) ||
+    (p === "steamgriddb" &&
+      modal === "artwork" &&
+      selectedId === g.id &&
+      artworkRequests.includes(artworkIdentity(g))) ||
+    (p.startsWith("reviews-") && ratingDetailIds.has(g.id));
   const enrichmentQueue = new EnrichmentQueue({
+    onIdle: () => manualMetadata.clear(),
+    shouldFetch: (g, p) =>
+      p === "achievements" ||
+      p === "retroachievements" ||
+      explicitMetadata(g, p) ||
+      manualMetadata.allows(g, p) ||
+      needsDiscovery(g, p),
+    started: (g, p) => {
+      if (p === "achievements" || p === "retroachievements") return;
+      manualMetadata.started(g, p);
+      const current = gameIndex.get(g.id);
+      if (!current) return;
+      const next = recordMetadataAttempt(current, p);
+      if (next === current) return;
+      games = games.map((row) => (row.id === g.id ? next : row));
+      dirtyMetadataAttempts.add(g.id);
+      if (!enrichmentSaveTimer)
+        enrichmentSaveTimer = setTimeout(flushEnrichment, 1000);
+    },
     concurrency: 12,
     perProviderConcurrency: 2,
     getGame: (id) => gameIndex.get(id),
@@ -254,8 +290,8 @@
         return (
           (settings.autoFillGaps !== false ||
             restoringIds.has(game.id) ||
-            ratingDetailIds.has(game.id) ||
-            selectedId === game.id) &&
+            manualMetadata.contains(game) ||
+            explicitMetadata(game, provider)) &&
           libraryResourceEnabled(game, provider)
         );
       if (provider === "retroachievements")
@@ -284,7 +320,9 @@
           return !!providers.screenScraperConfigured;
       }
       return (
-        (settings.autoFillGaps !== false || restoringIds.has(game.id)) &&
+        (settings.autoFillGaps !== false ||
+          restoringIds.has(game.id) ||
+          manualMetadata.contains(game)) &&
         gapEnabled(game, provider, providers)
       );
     },
@@ -817,6 +855,7 @@
       providers.screenScraperConfigured,
       providers.retroAchievementsConfigured,
       settings.autoFillGaps,
+      manualMetadataRevision,
       [...restoringIds],
       [...ratingDetailIds],
       selectedId,
@@ -904,13 +943,21 @@
     lastEnrichmentSave = Date.now();
     if (demoMode || !ready) {
       dirtyEnrichment.clear();
+      dirtyMetadataAttempts.clear();
       return;
     }
-    const ids = [...dirtyEnrichment];
+    const full = new Set(dirtyEnrichment);
+    const ids = [...new Set([...dirtyEnrichment, ...dirtyMetadataAttempts])];
     dirtyEnrichment.clear();
+    dirtyMetadataAttempts.clear();
     if (!ids.length) return;
     const updates = $state.snapshot(
-      ids.map((id) => gameIndex.get(id)).filter((g): g is Game => !!g),
+      ids
+        .map((id) => {
+          const game = gameIndex.get(id);
+          return game && (full.has(id) ? game : metadataAttemptPatch(game));
+        })
+        .filter((g): g is Game => !!g),
     );
     saveStatus = "saving";
     persistence = persistence
@@ -930,6 +977,7 @@
     notesSaveTimer = undefined;
     if (demoMode || !ready) return;
     dirtyEnrichment.clear();
+    dirtyMetadataAttempts.clear();
     clearTimeout(enrichmentSaveTimer);
     enrichmentSaveTimer = undefined;
     saveStatus = "saving";
@@ -1212,6 +1260,8 @@
   async function mutateBlacklist(restore: boolean, ids: string[]) {
     if (libraryMutation || demoMode) return;
     if (notesSaveTimer) persist();
+    flushEnrichment();
+    manualMetadata.clear();
     libraryEpoch++;
     libraryMutation = true;
     // Stop background producers before waiting for the ordered persistence tail.
@@ -1235,6 +1285,7 @@
         ]);
       api.forgetArtworkMemory();
       dirtyEnrichment.clear();
+      dirtyMetadataAttempts.clear();
       selectionIds = new Set();
       selectionMode = false;
       contextMenu = null;
@@ -1538,6 +1589,26 @@
       enrichmentQueue.scheduleReconcile(games, providers.revision, selectedId);
     else enrichmentQueue.clear();
   });
+  function scanMissingMetadata() {
+    if (
+      !ready ||
+      demoMode ||
+      libraryMutation ||
+      enrichmentProgress.running + enrichmentProgress.queued > 0
+    )
+      return;
+    const targets = games.filter(
+      (g) => missingFields(presentCached(g, providers.revision)).length > 0,
+    );
+    manualMetadata.start(targets);
+    manualMetadataRevision++;
+    reconcileEnrichment();
+    notify(
+      targets.length
+        ? `Checking missing metadata for ${targets.length} games.`
+        : "No missing artwork or metadata found.",
+    );
+  }
   function reconcileEnrichment() {
     if (api.desktop && ready && !demoMode)
       enrichmentQueue.scheduleReconcile(games, providers.revision, selectedId);
@@ -1911,6 +1982,8 @@
   function toggleDemo() {
     if (!ready) return;
     if (notesSaveTimer) persist();
+    flushEnrichment();
+    manualMetadata.clear();
     libraryEpoch++;
     installWatch.clear();
     pendingUninstalls.clear();
@@ -1955,20 +2028,38 @@
       sort = sortOptions.some(([id]) => id === settings.librarySort)
         ? settings.librarySort!
         : "title";
-      games = allowedGames(library.games, banishedGames);
+      const existing = allowedGames(library.games, banishedGames);
+      games = existing.map(baselineMetadata);
+      for (let i = 0; i < games.length; i++)
+        if (games[i] !== existing[i]) dirtyMetadataAttempts.add(games[i].id);
       if (!api.desktop && !games.length && !banishedGames.length) {
         demoMode = true;
         games = demoGames();
       }
+      if (api.desktop && games.length) {
+        await tick();
+        const firstCovers = homeShelves
+          .slice(0, 3)
+          .flatMap((s) =>
+            s.games.slice(
+              0,
+              Math.ceil(
+                Math.max(600, window.innerWidth - 280) /
+                  Math.max(120, settings.coverSize * 0.75),
+              ) + 2,
+            ),
+          );
+        await api.prepareLibraryStart(presentedGames, firstCovers);
+        if (epoch !== libraryEpoch) return;
+      }
       ready = true;
+      if (dirtyEnrichment.size || dirtyMetadataAttempts.size)
+        enrichmentSaveTimer = setTimeout(flushEnrichment, 1000);
       if (api.desktop) {
         void accountManager
           .load()
           .then(async () => {
-            const repair = needsAmazonPortraitRefresh(games)
-              ? accountManager.sync("amazon", true)
-              : Promise.resolve();
-            await Promise.allSettled([repair, accountManager.syncAll(true)]);
+            await accountManager.syncAll(true);
             void refreshSteamHistory();
           })
           .catch((e) => notify(`Connections could not load: ${e}`, true));
@@ -2004,10 +2095,8 @@
         if (disposed) stop();
         else stopArtwork = stop;
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!disposed) void loadLibrary();
-      });
+      .catch(() => {});
+    void loadLibrary();
     return () => {
       disposed = true;
       stopArtwork?.();
@@ -2414,8 +2503,8 @@
                 <div>
                   <strong>Automatically fill missing artwork & metadata</strong>
                   <p>
-                    Check at startup and for new or changed games. Completed
-                    games are skipped; your artwork choices stay in place.
+                    One automatic pass for newly discovered or rematched games.
+                    Use the refresh button beside Metadata below to retry gaps.
                   </p>
                 </div>
                 <input
@@ -3295,6 +3384,7 @@
     {/if}
     {#if ready && !demoMode && api.desktop}
       <EnrichmentStatus
+        onrefresh={scanMissingMetadata}
         progress={enrichmentProgress}
         syncing={accountStates
           .filter((a) => a.phase === "syncing")

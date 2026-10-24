@@ -707,6 +707,7 @@ fn owned_game(source: &str, id: &str, title: &str, a: &Account) -> Game {
         last_played: None,
         steam_activity:None,
         launcher_activity:None,
+        metadata_scan:None,
         preferred_copy: None,
         metadata_id: sid,
         metadata_locked: None,

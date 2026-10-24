@@ -55,6 +55,7 @@ export function recoveryGame(game: Game): Game {
     screenshots: [],
     storeMetadata: undefined,
     steamActivity: undefined,
+    metadataScan: undefined,
     activitySummary: undefined,
     artwork: undefined,
     enrichment: undefined,

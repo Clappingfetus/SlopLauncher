@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { RotateCw } from "@lucide/svelte";
   import { onDestroy } from "svelte";
   import { ActivityLatch } from "../lib/activity-latch";
   import { sourceNames, type AccountSource } from "../lib/types";
   import type { EnrichmentProgress } from "../lib/enrichment";
   let {
     progress,
+    onrefresh,
     enabled,
     missing,
     syncing = [],
@@ -12,6 +14,7 @@
     catalog = { total: 0, prepared: 0, working: false },
   }: {
     progress: EnrichmentProgress;
+    onrefresh?: () => void;
     enabled: boolean;
     missing: number;
     syncing?: AccountSource[];
@@ -55,7 +58,7 @@
       : !enabled
         ? "Automatic artwork and metadata search is off"
         : missing
-          ? `${missing} games have gaps; waiting for a provider, match, or retry`
+          ? `${missing} games have gaps. Refresh to scan missing metadata.`
           : "Artwork and metadata complete",
   );
 </script>
@@ -90,7 +93,14 @@
       <span class:busy={downloadWorking} class="activity-dot"></span>Artwork
     </div>
   </div>
-  <div class="activity-lane" title={metadataDetail}>
+  <div class="activity-lane metadata-lane" title={metadataDetail}>
+    <button
+      class="metadata-refresh"
+      aria-label="Scan missing metadata"
+      title="Scan all games missing artwork or metadata"
+      disabled={active || !onrefresh}
+      onclick={onrefresh}><RotateCw size={13} /></button
+    >
     <div class="lane-heading">
       <span>Metadata</span><span class="lane-value">{metadataStatus}</span>
     </div>
@@ -142,6 +152,33 @@
     background: var(--sidebar);
     color: var(--muted);
     font-size: 11px;
+  }
+  .metadata-lane {
+    position: relative;
+    padding-left: 24px;
+  }
+  .metadata-refresh {
+    position: absolute;
+    left: 0;
+    top: 5px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .metadata-refresh:hover:not(:disabled) {
+    color: var(--accent);
+    background: var(--surface);
+  }
+  .metadata-refresh:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   .activity-lane {
     min-width: 0;

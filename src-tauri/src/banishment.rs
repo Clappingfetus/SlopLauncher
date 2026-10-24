@@ -234,7 +234,7 @@ fn recovery(game: &Game) -> Game {
     g.released_at = None;
     g.screenshots.clear();
     g.store_metadata = None;
-    g.steam_activity=None;
+    g.steam_activity=None; g.metadata_scan=None;
     g.artwork = None;
     g.enrichment = None;
     g.metadata_locked = None;

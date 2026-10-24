@@ -120,8 +120,5 @@
       rejectCurrent();
     }}
   />{:else}<div class="cover-fallback" class:loading-art={url && !failed}>
-    {#if !url || failed}
-      <Gamepad2 size={hero ? 48 : 28} strokeWidth={1} /><span>{game.title}</span
-      >
-    {/if}
+    <Gamepad2 size={hero ? 48 : 28} strokeWidth={1} /><span>{game.title}</span>
   </div>{/if}

@@ -117,7 +117,9 @@ See [security and publication boundaries](SECURITY.md). Do not attach database f
 
 ## Project status
 
-Current source: **0.9.45**.
+Current source: **0.9.46**.
+
+Metadata gets one automatic lookup pass for newly discovered or rematched games. Existing libraries stay quiet on restart. Use the circular refresh button beside Metadata in the bottom bar to check games with gaps manually, including when automatic lookup is disabled. Startup warms the first screen from cached thumbnails before showing cards; remaining cached paths load in bounded batches without waiting for network downloads.
 
 Steam activity imports last-played dates, lifetime hours, and two-week playtime using your connected account. SlopLauncher keeps separate local launch dates and counts; Recently Played can show either history or both. Automatic history refresh runs every 15 minutes while background sync is enabled, with a manual refresh in Sources. Steam game-details privacy can limit the data returned. Local counts record successful launch requests, not measured session durations.
 

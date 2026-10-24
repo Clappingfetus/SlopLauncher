@@ -330,6 +330,40 @@ export const setLibraryArtwork = (games: Game[]) => {
   const targets = libraryCoverTargets(games);
   artworkCatalog.reconcile([...targets.keys()], targets);
 };
+// Warm only the initial viewport, and only from already cached local files.
+// A bounded deadline keeps damaged files or slow disks from delaying the library.
+export async function prepareLibraryStart(games: Game[], visible: Game[]) {
+  if (!desktop) return;
+  setLibraryArtwork(games);
+  const urls = [
+    ...new Set(
+      visible.map((g) => g.cover).filter((url): url is string => !!url),
+    ),
+  ].slice(0, 48);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const warm = (async () => {
+    await artworkCatalog.prime(urls);
+    const requests = urls
+      .filter((url) => artworkCatalog.peek(url))
+      .map((url) => acquireArtwork(url, 256, 0));
+    try {
+      await Promise.allSettled(requests.map((r) => r.promise));
+    } finally {
+      requests.forEach((r) => r.release());
+    }
+  })();
+  try {
+    await Promise.race([
+      warm,
+      new Promise<void>((resolve) => {
+        timeout = setTimeout(resolve, 250);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+    void artworkCatalog.hydrate();
+  }
+}
 export const invalidatePreparedArtwork = (url: string) =>
   artworkCatalog.invalidate(url);
 if (desktop)

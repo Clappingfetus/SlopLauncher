@@ -242,3 +242,40 @@ it("finds persisted alternate covers on restart without making a network request
   expect(catalog.source("broken")).toBe("cached-alternate");
   expect(prepare).not.toHaveBeenCalled();
 });
+
+it("primes the initial screen and hydrates cached paths without downloads or timer-per-batch delays", async () => {
+  const lookup = vi.fn(async (urls: string[]) =>
+    urls.map((url) => [url, `disk:${url}`] as [string, string]),
+  );
+  const prepare = vi.fn(async (url: string) => url);
+  const catalog = new ArtworkCatalog({
+    lookup,
+    prepare,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(Array.from({ length: 300 }, (_, i) => String(i)));
+  await catalog.prime(["299", "298"]);
+  expect(catalog.peek("299")).toBe("disk:299");
+  expect(catalog.peek("0")).toBeUndefined();
+  await catalog.hydrate();
+  expect(catalog.stats().prepared).toBe(300);
+  expect(prepare).not.toHaveBeenCalled();
+  expect(lookup.mock.calls.every(([urls]) => urls.length <= 128)).toBe(true);
+});
+it("rejects a stale startup path after the game artwork is removed", async () => {
+  let finish!: (rows: [string, string][]) => void;
+  const catalog = new ArtworkCatalog({
+    lookup: () => new Promise((r) => (finish = r)),
+    prepare: async (u) => u,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["old"]);
+  const prime = catalog.prime(["old"]);
+  catalog.reconcile(["new"]);
+  finish([["old", "old-path"]]);
+  await prime;
+  expect(catalog.peek("old")).toBeUndefined();
+  expect(catalog.stats().prepared).toBe(0);
+});

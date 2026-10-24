@@ -203,7 +203,10 @@ interface QueueOptions {
   concurrency?: number;
   enabled?: (provider: ProviderId, game: Game) => boolean;
   order?: (provider: ProviderId) => number;
+  shouldFetch?: (game: Game, provider: ProviderId) => boolean;
+  started?: (game: Game, provider: ProviderId) => void;
   onProgress?: (progress: EnrichmentProgress) => void;
+  onIdle?: () => void;
 }
 export class EnrichmentQueue {
   private pending = new Map<string, Job>();
@@ -291,6 +294,7 @@ export class EnrichmentQueue {
         else {
           this.scheduled = undefined;
           if (this.request) this.scheduled = setTimeout(begin, 40);
+          else this.finish();
         }
       };
       slice();
@@ -304,6 +308,8 @@ export class EnrichmentQueue {
     }
     this.pump();
     this.publish();
+    if (!this.scheduled && !this.request && !this.running && !this.pending.size)
+      this.options.onIdle?.();
   }
   private refresh(game: Game, time: number) {
     const policy = this.options.policy?.();
@@ -318,11 +324,14 @@ export class EnrichmentQueue {
       return;
 
     const enabled = providerIds.filter(
-      (p) => this.options.enabled?.(p, game) !== false,
+      (p) =>
+        this.options.shouldFetch?.(game, p) !== false &&
+        this.options.enabled?.(p, game) !== false,
     );
     const enabledKey = enabled.join(",");
     const signature = JSON.stringify([
       game.title,
+      game.metadataScan,
       steamId(game),
       copyIdentities(game),
       game.copies.map((copy) => copy.storePage),
@@ -348,6 +357,7 @@ export class EnrichmentQueue {
     let expires = Infinity;
     for (const provider of providerIds) {
       if (!enabled.includes(provider)) continue;
+      if (this.options.shouldFetch?.(game, provider) === false) continue;
       if (provider === "screenscraper" && !game.copies.some((c) => c.emulation))
         continue;
       if (
@@ -370,6 +380,7 @@ export class EnrichmentQueue {
       );
       const prior = game.enrichment?.[provider];
       if (prior?.fingerprint === fingerprint && prior.nextCheckAt > time) {
+        this.options.started?.(game, provider);
         expires = Math.min(expires, prior.nextCheckAt);
         continue;
       }
@@ -532,6 +543,7 @@ export class EnrichmentQueue {
       if (
         !current ||
         this.options.enabled?.(job.provider, current) === false ||
+        this.options.shouldFetch?.(current, job.provider) === false ||
         identity(current, job.provider, this.providerRevision(job.provider)) !==
           job.fingerprint
       )
@@ -540,6 +552,7 @@ export class EnrichmentQueue {
       this.active.add(key);
       this.jobs.set(key, job);
       this.running++;
+      this.options.started?.(current, job.provider);
       void this.run(job);
     }
   }
@@ -553,7 +566,7 @@ export class EnrichmentQueue {
         status: "unavailable",
         checkedAt: time,
         nextCheckAt: time + 15 * 60_000,
-        message: "Provider temporarily unavailable. A retry is scheduled.",
+        message: "Provider temporarily unavailable. Try again later.",
       };
     }
     // Completion is not permission to apply: the user may have disconnected,

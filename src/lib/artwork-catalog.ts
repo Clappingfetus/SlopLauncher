@@ -104,41 +104,59 @@ export class ArtworkCatalog {
         : undefined,
     };
   }
+  // Resolve a foreground batch before cards mount. This only looks up existing
+  // files: startup never waits for provider requests or missing-cover downloads.
+  async prime(urls: string[]) {
+    if (this.lookingUp) return;
+    const batch = [...new Set(urls)]
+      .filter((url) => this.urls.has(url) && this.unchecked.has(url))
+      .slice(0, 128);
+    if (!batch.length) return;
+    this.lookingUp = true;
+    try {
+      // Resolve cached alternatives on restart too, without retrying a dead
+      // preferred URL before discovering an already prepared fallback.
+      const candidates = [
+        ...new Set(
+          batch.flatMap((url) => [url, ...(this.fallbacks.get(url) ?? [])]),
+        ),
+      ];
+      const found = new Map<string, string>();
+      for (let i = 0; i < candidates.length; i += 128)
+        for (const [url, path] of await this.options.lookup(
+          candidates.slice(i, i + 128),
+        ))
+          found.set(url, path);
+      for (const url of batch) {
+        this.unchecked.delete(url);
+        const source = [url, ...(this.fallbacks.get(url) ?? [])].find(
+          (candidate) => found.has(candidate),
+        );
+        if (source) this.remember(url, found.get(source)!, source);
+      }
+    } catch {
+      // The single-item preparation path also checks disk before downloading.
+      // A broken batch lookup must not block the entire library indefinitely.
+      for (const url of batch) this.unchecked.delete(url);
+    } finally {
+      this.lookingUp = false;
+      this.options.changed();
+    }
+  }
+  async hydrate() {
+    // Yield between local batches instead of imposing 250ms of idle time on
+    // every 128 covers. Decoded images still use the bounded foreground loader.
+    while (this.unchecked.size) {
+      if (this.lookingUp) return;
+      await this.prime([...this.unchecked].slice(0, 128));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
   async step() {
     if (this.lookingUp || !this.urls.size) return;
     const batch = [...this.unchecked].slice(0, 128);
-    // Local path discovery does not compete with downloads or image decoding.
     if (batch.length) {
-      this.lookingUp = true;
-      try {
-        // Resolve cached alternatives on restart too, without retrying a dead
-        // preferred URL before discovering an already prepared fallback.
-        const candidates = [
-          ...new Set(
-            batch.flatMap((url) => [url, ...(this.fallbacks.get(url) ?? [])]),
-          ),
-        ];
-        const found = new Map<string, string>();
-        for (let i = 0; i < candidates.length; i += 128)
-          for (const [url, path] of await this.options.lookup(
-            candidates.slice(i, i + 128),
-          ))
-            found.set(url, path);
-        for (const url of batch) {
-          this.unchecked.delete(url);
-          const source = [url, ...(this.fallbacks.get(url) ?? [])].find(
-            (candidate) => found.has(candidate),
-          );
-          if (source) this.remember(url, found.get(source)!, source);
-        }
-      } catch {
-        // The single-item preparation path also checks disk before downloading.
-        // A broken batch lookup must not block the entire library indefinitely.
-        for (const url of batch) this.unchecked.delete(url);
-      } finally {
-        this.lookingUp = false;
-        this.options.changed();
-      }
+      await this.prime(batch);
       return;
     }
     // Keep one background slot during browsing so scrolling cannot starve the

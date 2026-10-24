@@ -122,6 +122,7 @@ pub(crate) fn game(v: &Value) -> Result<Option<Game>, String> {
         last_played: None,
         steam_activity:None,
         launcher_activity:None,
+        metadata_scan:None,
         preferred_copy: None,
         metadata_id: None,
         metadata_locked: None,
