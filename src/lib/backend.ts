@@ -271,16 +271,20 @@ export async function manualGame(
   throw new Error("Add installed games from the desktop app.");
 }
 const artworkLoader: ArtworkLoader = new ArtworkLoader({
-  resolve: async (url, thumbnail) =>
-    (thumbnail === 256 && artworkCatalog.peek(url)) ||
-    (desktop
-      ? convertFileSrc(
-          await invoke<string>("cached_artwork", {
-            url,
-            thumbnail: thumbnail || null,
-          }),
-        )
-      : url),
+  resolve: async (url, thumbnail) => {
+    const prepared = thumbnail === 256 && artworkCatalog.peek(url);
+    if (prepared) return prepared;
+    if (!desktop) return url;
+    const path = convertFileSrc(
+      await invoke<string>("cached_artwork", {
+        url,
+        thumbnail: thumbnail || null,
+      }),
+    );
+    // Browsing and background work populate the same persistent thumbnail index.
+    if (thumbnail === 256) artworkCatalog.remember(url, path);
+    return path;
+  },
   decode: decodeArtwork,
 });
 if (typeof window !== "undefined")
@@ -289,6 +293,9 @@ export const artworkCatalogState = writable({
   total: 0,
   prepared: 0,
   working: false,
+  retrying: 0,
+  pending: 0,
+  nextRetryAt: undefined as number | undefined,
 });
 const artworkCatalog: ArtworkCatalog = new ArtworkCatalog({
   lookup: async (urls) =>

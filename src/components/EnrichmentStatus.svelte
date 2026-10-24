@@ -16,7 +16,14 @@
     missing: number;
     syncing?: AccountSource[];
     downloads?: number;
-    catalog?: { total: number; prepared: number; working: boolean };
+    catalog?: {
+      total: number;
+      prepared: number;
+      working: boolean;
+      retrying?: number;
+      pending?: number;
+      nextRetryAt?: number;
+    };
   } = $props();
   let libraryWorking = $state(false),
     downloadWorking = $state(false);
@@ -99,13 +106,15 @@
   </div>
   <div
     class="activity-lane cover-cache"
-    title={catalog.total > catalog.prepared
-      ? `Preparing persistent cover thumbnails: ${catalog.prepared} of ${catalog.total}. Visible artwork has priority.`
-      : "Cover thumbnails are prepared on disk"}
+    title={`${catalog.prepared} of ${catalog.total} covers cached on disk.${catalog.retrying ? ` ${catalog.retrying} unavailable covers waiting to retry${catalog.nextRetryAt ? ` from ${new Date(catalog.nextRetryAt).toLocaleTimeString()}` : ""}.` : ""}${catalog.pending ? ` ${catalog.pending} covers still to prepare.` : ""}`}
   >
     <div class="lane-heading">
       <span>Cover cache</span><span class="lane-value"
-        >{catalog.total ? `${catalog.prepared}/${catalog.total}` : "—"}</span
+        >{catalog.retrying && !catalog.pending && !catalog.working
+          ? `${catalog.retrying} retry`
+          : catalog.total
+            ? `${catalog.prepared}/${catalog.total}`
+            : "—"}</span
       >
     </div>
     <div class="lane-detail">

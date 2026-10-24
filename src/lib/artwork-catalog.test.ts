@@ -19,7 +19,7 @@ describe("persistent library thumbnail index", () => {
     expect(catalog.stats().prepared).toBe(10000);
     expect(prepare).not.toHaveBeenCalled();
   });
-  it("yields preparation to foreground work, and discards removed or rematched results", async () => {
+  it("keeps one slot during foreground work and discards removed or rematched results", async () => {
     let busy = true,
       finish!: (path: string) => void;
     const prepare = vi.fn(() => new Promise<string>((r) => (finish = r)));
@@ -31,10 +31,10 @@ describe("persistent library thumbnail index", () => {
     });
     catalog.reconcile(["old"]);
     await catalog.step();
-    await catalog.step();
-    expect(prepare).not.toHaveBeenCalled();
-    busy = false;
     const pending = catalog.step();
+    await catalog.step();
+    expect(prepare).toHaveBeenCalledTimes(1);
+    busy = false;
     catalog.reconcile(["replacement"]);
     finish("old-disk");
     await pending;
@@ -66,9 +66,86 @@ describe("persistent library thumbnail index", () => {
     await catalog.step();
     expect(prepare).toHaveBeenCalledTimes(2);
     expect(catalog.peek("good")).toBe("disk:good");
+    expect(catalog.stats()).toMatchObject({
+      prepared: 1,
+      retrying: 1,
+      pending: 0,
+      working: false,
+      nextRetryAt: 3600001,
+    });
     catalog.reconcile(["bad", "good", "late"]);
     await catalog.step();
     await catalog.step();
     expect(catalog.peek("late")).toBe("disk:late");
+  });
+});
+
+it("bounds background downloads, credits foreground success, and retries failed covers", async () => {
+  let time = 1;
+  const releases = new Map<
+    string,
+    { resolve: (v: string) => void; reject: () => void }
+  >();
+  const catalog = new ArtworkCatalog({
+    lookup: async () => [],
+    prepare: (url) =>
+      new Promise<string>((resolve, reject) =>
+        releases.set(url, { resolve, reject: () => reject(Error("offline")) }),
+      ),
+    foregroundBusy: () => false,
+    changed: () => {},
+    now: () => time,
+  });
+  catalog.reconcile(["a", "b", "c"]);
+  await catalog.step();
+  const a = catalog.step(),
+    b = catalog.step();
+  await catalog.step();
+  expect([...releases.keys()]).toEqual(["a", "b"]);
+  catalog.remember("a", "foreground:a");
+  releases.get("a")!.reject();
+  releases.get("b")!.reject();
+  await Promise.all([a, b]);
+  expect(catalog.stats()).toMatchObject({
+    prepared: 1,
+    retrying: 1,
+    pending: 1,
+  });
+  const c = catalog.step();
+  releases.get("c")!.resolve("disk:c");
+  await c;
+  expect(catalog.stats()).toMatchObject({
+    prepared: 2,
+    retrying: 1,
+    pending: 0,
+  });
+  time = 3600002;
+  const retry = catalog.step();
+  releases.get("b")!.resolve("disk:b");
+  await retry;
+  expect(catalog.stats()).toMatchObject({
+    prepared: 3,
+    retrying: 0,
+    pending: 0,
+    working: false,
+  });
+});
+
+it("falls back to individual cache checks when batch discovery fails", async () => {
+  const catalog = new ArtworkCatalog({
+    lookup: async () => {
+      throw Error("index unavailable");
+    },
+    prepare: async (url) => `disk:${url}`,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["cover"]);
+  await catalog.step();
+  await catalog.step();
+  expect(catalog.stats()).toMatchObject({
+    prepared: 1,
+    pending: 0,
+    retrying: 0,
   });
 });

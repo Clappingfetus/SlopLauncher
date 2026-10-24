@@ -5,7 +5,8 @@ export class ArtworkCatalog {
   private paths = new Map<string, string>();
   private unchecked = new Set<string>();
   private retries = new Map<string, number>();
-  private busy = false;
+  private lookingUp = false;
+  private active = new Set<string>();
   constructor(
     private options: {
       lookup: (urls: string[]) => Promise<[string, string][]>;
@@ -46,42 +47,61 @@ export class ArtworkCatalog {
     return {
       total: this.urls.size,
       prepared: this.paths.size,
-      working: this.busy,
+      working: this.lookingUp || this.active.size > 0,
+      retrying: this.retries.size,
+      pending: this.urls.size - this.paths.size - this.retries.size,
+      nextRetryAt: this.retries.size
+        ? Math.min(...this.retries.values())
+        : undefined,
     };
   }
   async step() {
-    if (this.busy || !this.urls.size) return;
+    if (this.lookingUp || !this.urls.size) return;
     const batch = [...this.unchecked].slice(0, 128);
     // Local path discovery does not compete with downloads or image decoding.
     if (batch.length) {
-      this.busy = true;
+      this.lookingUp = true;
       try {
         const found = await this.options.lookup(batch);
         for (const url of batch) this.unchecked.delete(url);
         for (const [url, path] of found)
-          if (this.urls.has(url)) this.paths.set(url, path);
+          if (this.urls.has(url)) {
+            this.paths.set(url, path);
+            this.retries.delete(url);
+          }
       } catch {
-        /* retry disk discovery on a later tick */
+        // The single-item preparation path also checks disk before downloading.
+        // A broken batch lookup must not block the entire library indefinitely.
+        for (const url of batch) this.unchecked.delete(url);
       } finally {
-        this.busy = false;
+        this.lookingUp = false;
         this.options.changed();
       }
       return;
     }
-    if (this.options.foregroundBusy()) return;
+    // Keep one background slot during browsing so scrolling cannot starve the
+    // shared cache. When idle, two bounded jobs can overlap network waits.
+    const limit = this.options.foregroundBusy() ? 1 : 2;
+    if (this.active.size >= limit) return;
     const now = (this.options.now ?? Date.now)();
     const url = [...this.urls].find(
-      (url) => !this.paths.has(url) && (this.retries.get(url) ?? 0) <= now,
+      (url) =>
+        !this.paths.has(url) &&
+        !this.active.has(url) &&
+        (this.retries.get(url) ?? 0) <= now,
     );
     if (!url) return;
-    this.busy = true;
+    this.active.add(url);
+    this.retries.delete(url);
     this.options.changed();
     try {
       this.remember(url, await this.options.prepare(url));
     } catch {
-      if (this.urls.has(url)) this.retries.set(url, now + 3_600_000);
+      // Foreground preparation may have succeeded while this request failed.
+      if (this.urls.has(url) && !this.paths.has(url))
+        this.retries.set(url, (this.options.now ?? Date.now)() + 3_600_000);
     } finally {
-      this.busy = false;
+      this.active.delete(url);
       this.options.changed();
     }
   }
