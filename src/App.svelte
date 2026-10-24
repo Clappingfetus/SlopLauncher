@@ -40,13 +40,7 @@
   import Cover from "./components/Cover.svelte";
   import VirtualGrid from "./components/VirtualGrid.svelte";
   import SmartGroupEditor from "./components/SmartGroupEditor.svelte";
-  import {
-    groupGames,
-    groupOptions,
-    usesHltb,
-    usesRatings,
-    validateGroups,
-  } from "./lib/grouping";
+  import { groupGames, groupOptions, validateGroups } from "./lib/grouping";
   import type { GroupMode, SmartGroup, Copy } from "./lib/types";
   import GameLinks from "./components/GameLinks.svelte";
   import { createVersionResolver, gameContextIdentity } from "./lib/versions";
@@ -62,7 +56,13 @@
   import { artworkCatalogState } from "./lib/backend";
   import EnrichmentStatus from "./components/EnrichmentStatus.svelte";
   import Achievements from "./components/Achievements.svelte";
-  import { createGapPolicy, gapProviderOrder, missingFields } from "./lib/gaps";
+  import {
+    createGapPolicy,
+    gapProviderOrder,
+    missingFields,
+    isLibraryResource,
+    libraryResourceEnabled,
+  } from "./lib/gaps";
   import { artworkIdentity, selectedArtwork } from "./lib/artwork";
   import AppLogo from "./components/AppLogo.svelte";
   import ThemePicker from "./components/ThemePicker.svelte";
@@ -215,12 +215,7 @@
       provider === "achievements"
         ? (steamAchievementAccount?.revision ?? 0)
         : providers.revision,
-    order: (provider) =>
-      needLibraryTimes && provider === "hltb"
-        ? -2
-        : needLibraryTimes && provider === "pcgw"
-          ? -1
-          : gapProviderOrder[provider],
+    order: (provider) => gapProviderOrder[provider],
     onProgress: (progress) => (enrichmentProgress = progress),
     getGames: () => games,
     fetch: (game, provider) =>
@@ -234,27 +229,13 @@
             : undefined,
       ),
     enabled: (provider, game) => {
-      const wantsRatings =
-        ratingDetailIds.has(game.id) ||
-        (settings.autoFillGaps !== false &&
-          needLibraryRatings &&
-          (!game.hidden || settings.showHiddenGames || filter === "hidden"));
-      if (provider.startsWith("reviews-")) {
-        if (!wantsRatings) return false;
-        if (provider === "reviews-steam") return !!steamId(game);
-        if (provider === "reviews-itch")
-          return game.copies.some((c) => c.source === "itch" && !!c.storePage);
-        if (provider === "reviews-metacritic")
-          return (
-            !!game.providerIds?.metacriticSlug || !!currentResult(game, "pcgw")
-          );
-        if (provider === "reviews-opencritic")
-          return (
-            !!game.providerIds?.opencriticPath || !!currentResult(game, "pcgw")
-          );
-        return true;
-      }
-      if (provider === "pcgw" && wantsRatings) return true;
+      if (isLibraryResource(provider))
+        return (
+          (settings.autoFillGaps !== false ||
+            ratingDetailIds.has(game.id) ||
+            selectedId === game.id) &&
+          libraryResourceEnabled(game, provider)
+        );
       if (provider === "retroachievements")
         return (
           selectedId === game.id &&
@@ -269,24 +250,12 @@
           preferredCopy(game)?.source === "steam"
         );
       if (
-        settings.autoFillGaps !== false &&
-        needLibraryTimes &&
-        timeCandidateIds.has(game.id) &&
-        (provider === "pcgw" || provider === "hltb")
-      )
-        return true;
-      if (
         provider === "steamgriddb" &&
         modal === "artwork" &&
         selectedId === game.id &&
         artworkRequests.includes(artworkIdentity(game))
       )
         return providers.steamGridDbConfigured;
-      if (
-        ["pcgw", "hltb", "nexus"].includes(provider) &&
-        selectedId === game.id
-      )
-        return true;
       if (modal === "metadata" && selectedId === game.id) {
         if (provider === "igdb") return providers.igdbConfigured;
         if (provider === "screenscraper")
@@ -731,22 +700,6 @@
           clockTime,
         ),
   );
-  let needLibraryRatings = $derived(
-    page === "library" &&
-      (sort.startsWith("rating-") ||
-        usesRatings(groupingMode, settings.smartGroups) ||
-        collections.some(
-          (c) => c.rule && usesRatings(c.rule.mode, c.rule.groups),
-        )),
-  );
-  let needLibraryTimes = $derived(
-    page === "library" &&
-      (sort.startsWith("hltb-") ||
-        usesHltb(groupingMode, settings.smartGroups) ||
-        collections.some(
-          (c) => c.rule && usesHltb(c.rule.mode, c.rule.groups),
-        )),
-  );
   let enrichmentPolicy = $derived(
     JSON.stringify([
       steamAchievementAccount?.revision,
@@ -758,24 +711,11 @@
       providers.screenScraperConfigured,
       providers.retroAchievementsConfigured,
       settings.autoFillGaps,
-      settings.showHiddenGames,
-      filter,
-      needLibraryTimes,
-      needLibraryRatings,
       [...ratingDetailIds],
       selectedId,
       modal,
       artworkRequests,
     ]),
-  );
-  let timeCandidateIds = $derived(
-    new Set(
-      needLibraryTimes
-        ? presentedGames
-            .filter((g) => settings.showHiddenGames || !g.hidden)
-            .map((g) => g.id)
-        : [],
-    ),
   );
   function saveSmartGroups(rules: SmartGroup[]) {
     settings.smartGroups = validateGroups(rules);
@@ -1288,9 +1228,6 @@
   });
   $effect(() => {
     void enrichmentPolicy;
-    void needLibraryTimes;
-    void needLibraryRatings;
-    void timeCandidateIds;
     if (api.desktop && ready && !demoMode)
       enrichmentQueue.scheduleReconcile(games, providers.revision, selectedId);
     else enrichmentQueue.clear();

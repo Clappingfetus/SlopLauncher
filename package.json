@@ -1,7 +1,7 @@
 {
   "name": "sloplauncher",
   "private": true,
-  "version": "0.9.36",
+  "version": "0.9.37",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",

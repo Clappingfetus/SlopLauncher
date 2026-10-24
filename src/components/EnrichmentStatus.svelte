@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+  import { ActivityLatch } from "../lib/activity-latch";
   import { sourceNames, type AccountSource } from "../lib/types";
   import type { EnrichmentProgress } from "../lib/enrichment";
   let {
@@ -16,6 +18,20 @@
     downloads?: number;
     catalog?: { total: number; prepared: number; working: boolean };
   } = $props();
+  let libraryWorking = $state(false),
+    downloadWorking = $state(false);
+  const libraryActivity = new ActivityLatch(
+    (value) => (libraryWorking = value),
+  );
+  const downloadActivity = new ActivityLatch(
+    (value) => (downloadWorking = value),
+  );
+  $effect(() => libraryActivity.update(syncing.length > 0));
+  $effect(() => downloadActivity.update(downloads > 0));
+  onDestroy(() => {
+    libraryActivity.dispose();
+    downloadActivity.dispose();
+  });
   let active = $derived(progress.running + progress.queued > 0);
   let metadataStatus = $derived(
     active
@@ -46,25 +62,25 @@
   >
     <div class="lane-heading">
       <span>Libraries</span><span class="lane-value"
-        >{syncing.length ? `${syncing.length} syncing` : "Idle"}</span
+        >{libraryWorking ? "Syncing" : "Idle"}</span
       >
     </div>
     <div class="lane-detail">
-      <span class:busy={syncing.length > 0} class="activity-dot"
+      <span class:busy={libraryWorking} class="activity-dot"
       ></span>Owned-library sync
     </div>
   </div>
   <div
     class="activity-lane"
-    title="Artwork downloads only; cached images are loaded from disk"
+    title={`${downloads} artwork downloads currently active. Short requests are grouped into one activity session; cached images load from disk.`}
   >
     <div class="lane-heading">
       <span>Downloads</span><span class="lane-value"
-        >{downloads ? `${downloads} active` : "Idle"}</span
+        >{downloadWorking ? "Working" : "Idle"}</span
       >
     </div>
     <div class="lane-detail">
-      <span class:busy={downloads > 0} class="activity-dot"></span>Artwork
+      <span class:busy={downloadWorking} class="activity-dot"></span>Artwork
     </div>
   </div>
   <div class="activity-lane" title={metadataDetail}>
@@ -108,10 +124,9 @@
   .enrichment-status {
     flex-shrink: 0;
     display: grid;
-    grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(
-        0,
-        1.2fr
-      ) minmax(0, 1.2fr);
+    grid-template-columns:
+      minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1.2fr)
+      minmax(0, 1.2fr);
     gap: 24px;
     padding: 8px 28px;
     border-top: 1px solid var(--line);

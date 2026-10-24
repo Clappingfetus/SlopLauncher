@@ -136,3 +136,21 @@ export const gapProviderOrder: Record<ProviderId, number> = {
   "reviews-opencritic": 9,
   "reviews-itch": 8,
 };
+
+// These resources enrich the shared library, never a filtered view of it.
+export function isLibraryResource(provider: ProviderId) {
+  return (
+    ["pcgw", "hltb", "nexus"].includes(provider) ||
+    provider.startsWith("reviews-")
+  );
+}
+export function libraryResourceEnabled(game: Game, provider: ProviderId) {
+  if (provider === "reviews-steam") return !!steamId(game);
+  if (provider === "reviews-itch")
+    return game.copies.some((c) => c.source === "itch" && !!c.storePage);
+  if (provider === "reviews-metacritic")
+    return !!game.providerIds?.metacriticSlug || !!currentResult(game, "pcgw");
+  if (provider === "reviews-opencritic")
+    return !!game.providerIds?.opencriticPath || !!currentResult(game, "pcgw");
+  return isLibraryResource(provider);
+}

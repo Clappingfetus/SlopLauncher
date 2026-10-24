@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   gapProviderEnabled,
+  isLibraryResource,
+  libraryResourceEnabled,
   createGapPolicy,
   missingFields,
   nativeProvider,
@@ -261,4 +263,31 @@ it("cached gap policies agree with provider eligibility and invalidate with new 
   for (const p of Object.keys(gapProviderOrder) as ProviderId[])
     expect(policy(next, p, status)).toBe(gapProviderEnabled(next, p, status));
   expect(policy(g, "igdb", { ...status, igdbConfigured: false })).toBe(false);
+});
+
+it("shares resource eligibility across hidden, favorite, and late-added games", () => {
+  const game = complete();
+  for (const provider of [
+    "pcgw",
+    "hltb",
+    "nexus",
+    "reviews-steam",
+    "reviews-gog",
+  ] as ProviderId[]) {
+    expect(isLibraryResource(provider)).toBe(true);
+    expect(libraryResourceEnabled(game, provider)).toBe(true);
+    expect(
+      libraryResourceEnabled(
+        { ...game, id: "late", hidden: true, favorite: true },
+        provider,
+      ),
+    ).toBe(true);
+  }
+  expect(
+    libraryResourceEnabled(
+      { ...game, copies: [], metadataId: undefined },
+      "reviews-steam",
+    ),
+  ).toBe(false);
+  expect(isLibraryResource("achievements")).toBe(false);
 });
