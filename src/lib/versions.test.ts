@@ -340,3 +340,21 @@ describe("hidden library duplicate presentation", () => {
     ).toHaveLength(2);
   });
 });
+
+it("reuses version lists within an index and refreshes for late copies and rematches", () => {
+  const a = game("cache-a", "steam"),
+    b = game("cache-b", "gog");
+  const first = versionLibrary([a, b], settings);
+  expect(first.versions(a.id)).toBe(first.versions(b.id));
+  expect(first.versions(a.id)).toHaveLength(2);
+  const late = game("cache-c", "epic");
+  const next = versionLibrary([a, b, late], settings);
+  expect(next.versions(a.id)).toHaveLength(3);
+  expect(next.versions(a.id)).not.toBe(first.versions(a.id));
+  const rematched = versionLibrary(
+    [a, { ...b, title: "Other game" }],
+    settings,
+  );
+  expect(rematched.versions(a.id)).toHaveLength(1);
+  expect(rematched.versions(late.id)).toEqual([]);
+});

@@ -866,15 +866,13 @@ textarea::placeholder {
   height: 100%;
   object-fit: cover;
   display: block;
-  transition:
-    transform 0.23s ease,
-    filter 0.23s ease;
+  transition: transform 0.23s ease;
 }
 .cover-button:hover img {
   transform: scale(1.035);
-  filter: brightness(1.06);
+
 }
-.cover-wrap:focus-within {
+.cover-wrap:has(:focus-visible) {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
@@ -2668,3 +2666,34 @@ dialog.artwork-dialog {
 .setup-entry { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:16px 18px; margin:0 0 24px; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
 .setup-entry p { margin:0; font-size:12px; color:var(--faint); line-height:1.7; }
 .setup-entry button { flex-shrink:0; }
+
+/* Card chrome stays readable without applying a filter to every artwork pixel. */
+.cover-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.cover-wrap:hover::after { border-color: var(--muted); }
+.card-favorite:focus-visible,
+.card-hide:focus-visible,
+.card-play:focus-visible { outline-offset: -3px; }
+.game-caption { color: var(--muted); }
+.game-source-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.game-caption .installed-indicator { flex-shrink: 0; }
+/* Invisible quick actions must not intercept a click intended for the cover.
+   They remain keyboard reachable and become interactive on hover or focus. */
+.card-favorite:not(.active), .card-play { pointer-events: none; }
+.cover-wrap:hover .card-favorite,
+.cover-wrap:focus-within .card-favorite,
+.cover-wrap:hover .card-play,
+.cover-wrap:focus-within .card-play { pointer-events: auto; }
+@media (hover: none) {
+  .card-favorite, .card-favorite:not(.active), .card-play { opacity: 1; transform: none; pointer-events: auto; }
+}

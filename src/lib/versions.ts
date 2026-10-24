@@ -254,8 +254,21 @@ export function versionLibrary(
     decorated.set(game, shown);
     return shown;
   }
-  const versions = (id: string): GameVersion[] =>
-    members(id).flatMap((game) => game.copies.map((copy) => ({ game, copy })));
+  // Card counts and the details picker share one list per duplicate group.
+  // Scope this cache to the current index so imports/rematches cannot go stale.
+  const versionGroups = new Map<string, GameVersion[]>();
+  const versions = (id: string): GameVersion[] => {
+    if (!byId.has(id)) return [];
+    const key = root(id);
+    let list = versionGroups.get(key);
+    if (!list) {
+      list = members(id).flatMap((game) =>
+        game.copies.map((copy) => ({ game, copy })),
+      );
+      versionGroups.set(key, list);
+    }
+    return list;
+  };
   function choose(candidates: Game[]): Game {
     const allowed = new Set(candidates.map((g) => g.id)),
       all = members(candidates[0].id),

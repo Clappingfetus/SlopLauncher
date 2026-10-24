@@ -55,6 +55,7 @@
       class:active={game.favorite}
       class="card-favorite"
       aria-label={`${game.favorite ? "Unfavorite" : "Favorite"} ${game.title}`}
+      title={game.favorite ? "Remove from favorites" : "Add to favorites"}
       aria-pressed={game.favorite}
       onclick={() => onfavorite(game)}
       ><Heart
@@ -78,6 +79,8 @@
   >
   <div class="game-caption">
     <span class="source-dot" data-source={copy?.source}></span><span
+      class="game-source-label"
+      title={`${copy?.emulation ? consoleName(copy.emulation.platform) : (sourceNames[copy?.source] ?? "Local")}${versionCount > 1 ? ` · ${versionCount} versions` : ""}`}
       >{copy?.emulation
         ? consoleName(copy?.emulation?.platform)
         : (sourceNames[copy?.source] ?? "Local")}{versionCount > 1
