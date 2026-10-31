@@ -145,6 +145,7 @@
   import { demoGames } from "./lib/demo";
   import * as api from "./lib/backend";
 
+  let homeLibraryWidth = $state(900);
   let games = $state.raw<Game[]>([]),
     settings = $state<Settings>({ ...defaultSettings }),
     demoMode = $state(false),
@@ -3015,17 +3016,15 @@
         </div>
       </main>
     {:else if page === "home"}
+      <div class:compact-library={!settings.comfortableLibrary} class="library-page home-grid-measure" aria-hidden="true"><div class="library-viewport" bind:clientWidth={homeLibraryWidth}></div></div>
       <HomeScreen
         shelves={homeShelves}
-        cardWidth={Math.max(
-          120,
-          Math.min(
-            220,
-            Math.round(
-              settings.coverSize * (settings.comfortableLibrary ? 1 : 0.75),
-            ),
-          ),
-        )}
+        cardWidth={(() => {
+          const gap = settings.comfortableLibrary ? 24 : 16;
+          const minimum = Math.round(settings.coverSize * (settings.comfortableLibrary ? 1 : 0.75));
+          const columns = Math.max(1, Math.floor((homeLibraryWidth + gap) / (minimum + gap)));
+          return (homeLibraryWidth - 4 - gap * (columns - 1)) / columns;
+        })()}
         {ready}
         error={loadError}
         draggable={!demoMode}

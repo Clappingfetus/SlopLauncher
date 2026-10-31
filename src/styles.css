@@ -2790,3 +2790,7 @@ dialog.banished-dialog{max-width:850px;width:calc(100vw - 48px)}
 .filter-pills .smart-collections-link { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); border: 1px solid var(--line); border-radius: 6px; background: transparent; white-space: nowrap; }
 .filter-pills .smart-collections-link:hover:not(:disabled) { border-color: var(--accent); background: var(--surface); }
 dialog.grouping-dialog { width: 980px; max-width: calc(100vw - 40px); }
+
+/* Measure the Library grid at Home so both pages share its responsive card width. */
+.workspace { position: relative; }
+.home-grid-measure { position: absolute; inset: 0; height: 1px; visibility: hidden; pointer-events: none; overflow: hidden; }
