@@ -124,6 +124,8 @@ a {
   overflow-y: auto;
   flex: 1;
   margin-top: 14px;
+  background: color-mix(in srgb, var(--sidebar) 80%, black);
+  border-radius: 8px;
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
   overscroll-behavior: contain;
