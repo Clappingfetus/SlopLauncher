@@ -101,7 +101,7 @@ a {
 .app-shell {
   height: 100dvh;
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 196px minmax(0, 1fr);
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
@@ -1884,7 +1884,7 @@ form label > .optional {
 }
 @media (min-width: 1600px) {
   .app-shell {
-    grid-template-columns: 242px 1fr;
+    grid-template-columns: 216px 1fr;
   }
   .library-page {
     padding-left: 48px;
@@ -1903,7 +1903,7 @@ form label > .optional {
 }
 @media (max-width: 1100px) {
   .app-shell {
-    grid-template-columns: 190px 1fr;
+    grid-template-columns: 180px 1fr;
   }
   .sidebar {
     padding: 25px 12px 15px;
@@ -2794,3 +2794,17 @@ dialog.grouping-dialog { width: 980px; max-width: calc(100vw - 40px); }
 /* Measure the Library grid at Home so both pages share its responsive card width. */
 .workspace { position: relative; }
 .home-grid-measure { position: absolute; inset: 0; height: 1px; visibility: hidden; pointer-events: none; overflow: hidden; }
+
+/* Keep the sidebar dense while retaining full-width, easy-to-hit navigation rows. */
+@media (min-width: 761px) {
+  .sidebar { padding: 21px 11px 14px; }
+  .sidebar .brand { margin-bottom: 25px; padding-left: 7px; font-size: 17px; }
+  .sidebar nav { gap: 2px; }
+  .sidebar nav button, .sidebar-bottom > button { padding: 8px 10px; font-size: 13px; }
+  .sidebar .source-nav button { padding: 7px 10px; gap: 9px; }
+  .sidebar-library-nav { margin-top: 9px; }
+  .sidebar-library-nav .nav-heading { margin: 15px 10px 8px; }
+  .collection-drag-instruction { margin: 0 10px 5px; }
+  .collection-nav-empty { padding: 4px 10px; }
+  .sidebar-bottom { padding-top: 12px; gap: 2px; }
+}
