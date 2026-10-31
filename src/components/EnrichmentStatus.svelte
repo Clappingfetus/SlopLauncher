@@ -106,7 +106,8 @@
       <progress
         aria-label="Cover cache preparation"
         max={Math.max(catalog.total, 1)}
-        value={settled}
+        value={cacheActive ? settled : 0}
+        class:quiet={!cacheActive}
       ></progress>
     </div>
   </div>
