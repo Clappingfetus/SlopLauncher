@@ -64,13 +64,6 @@
   </div>
   <div class="activity-item progress-item">
     <span class="item-icon"><Database size={15} /></span>
-    <button
-      class="refresh"
-      aria-label="Scan missing metadata"
-      title="Scan games missing metadata"
-      disabled={active || !onrefresh}
-      onclick={onrefresh}><RotateCw size={14} /></button
-    >
     <div class="item-body">
       <div class="item-top">
         <span class="item-label">Metadata</span><span class="item-state"
@@ -81,12 +74,21 @@
               : "Paused"}</span
         >
       </div>
-      <progress
-        aria-label="Metadata and resource checks"
-        max={Math.max(progress.total, 1)}
-        value={active ? progress.completed : 0}
-        class:quiet={!active}
-      ></progress>
+      <div class="metadata-progress">
+        <button
+          class="refresh"
+          aria-label="Scan missing metadata"
+          title="Scan games missing metadata"
+          disabled={active || !onrefresh}
+          onclick={onrefresh}><RotateCw size={12} /></button
+        >
+        <progress
+          aria-label="Metadata and resource checks"
+          max={Math.max(progress.total, 1)}
+          value={active ? progress.completed : 0}
+          class:quiet={!active}
+        ></progress>
+      </div>
     </div>
   </div>
   <div class="activity-item progress-item cache-item">
@@ -199,9 +201,18 @@
   progress.quiet {
     opacity: 0.35;
   }
+  .metadata-progress {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .metadata-progress progress {
+    min-width: 0;
+    flex: 1;
+  }
   .refresh {
-    width: 28px;
-    height: 28px;
+    width: 20px;
+    height: 20px;
     display: grid;
     place-items: center;
     flex-shrink: 0;
