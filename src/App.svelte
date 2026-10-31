@@ -1190,6 +1190,14 @@
   let libraryMutation = $state(false);
   let selectionMode = $state(false);
   let selectionIds = $state.raw(new Set<string>());
+  let selectionHadGames = false;
+  // An empty selection is useful when mode first opens; after a game has been
+  // selected, clearing the final selection should return to normal browsing.
+  $effect(() => {
+    if (!selectionMode) { selectionHadGames = false; return; }
+    if (selectionIds.size) selectionHadGames = true;
+    else if (selectionHadGames) { selectionMode = false; selectionHadGames = false; }
+  });
   let selectionAnchor = "";
   let banishTargets = $state.raw<string[]>([]);
   let contextActionIds = $derived(
