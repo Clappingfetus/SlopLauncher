@@ -145,6 +145,19 @@
   } from "./lib/library";
   import { demoGames } from "./lib/demo";
   import * as api from "./lib/backend";
+  import steamIcon from "./assets/source-icons/steam.ico";
+  import epicIcon from "./assets/source-icons/epic.png";
+  import amazonIcon from "./assets/source-icons/amazon.png";
+  import gogIcon from "./assets/source-icons/gog.ico";
+  import itchIcon from "./assets/source-icons/itch.ico";
+
+  const sourceIcons: Partial<Record<Source, string>> = {
+    steam: steamIcon,
+    epic: epicIcon,
+    amazon: amazonIcon,
+    gog: gogIcon,
+    itch: itchIcon,
+  };
 
   let homeLibraryWidth = $state(900);
   let games = $state.raw<Game[]>([]),
@@ -2262,20 +2275,8 @@
         {#each sources as source}<button
             class:nav-active={page === "library" && filter === source}
             onclick={() => navigate(source)}
-            ><span class="store-icon" data-source={source}
-              >{source === "steam"
-                ? "S"
-                : source === "epic"
-                  ? "E"
-                  : source === "amazon"
-                    ? "a"
-                    : source === "gog"
-                      ? "gog"
-                      : source === "itch"
-                        ? "i"
-                        : source === "emulated"
-                          ? "◈"
-                          : "+"}</span
+            ><span class="store-icon" data-source={source} aria-hidden="true"
+              >{#if sourceIcons[source]}<img src={sourceIcons[source]} alt="" />{:else if source === "emulated"}◈{:else}+{/if}</span
             ><span>{sourceNames[source]}</span><span class="nav-count"
               >{browsableGames.filter((g) =>
                 g.copies.some((c) => c.source === source),

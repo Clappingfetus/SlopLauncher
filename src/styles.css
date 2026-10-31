@@ -356,6 +356,12 @@ nav button.nav-active,
   border-radius: 5px;
   background: var(--surface-hover);
 }
+.source-nav .store-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: inherit;
+}
 .store-icon[data-source="amazon"] {
   font-size: 20px;
   line-height: 1;
