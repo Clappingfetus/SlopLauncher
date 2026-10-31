@@ -55,7 +55,7 @@ pub fn load(db: &Connection, dir: &Path) -> Result<Vec<Record>, String> {
                 .to_string_lossy()
                 .into_owned()
         });
-        if path.is_some() || retry_at.is_some_and(|t| t > now()) {
+        if path.is_some() || retry_at.is_some_and(|t| t > 0) {
             out.push(Record {
                 url,
                 path,
@@ -138,6 +138,27 @@ pub async fn save_cover_catalog(entries: Vec<Record>, app: tauri::AppHandle) -> 
 mod tests {
     use super::*;
     const URL: &str = "https://cdn.akamai.steamstatic.com/fixture/cover.jpg";
+    #[test]
+    fn expired_retry_remains_visible_after_reopen() {
+        let dir = std::env::temp_dir().join(format!("cover-retry-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let database = dir.join("test.sqlite3");
+        {
+            let db = crate::db_open(&database).unwrap();
+            db.execute(
+                "INSERT INTO cover_catalog(url,source,file,retry_at) VALUES(?1,?1,NULL,1)",
+                [URL],
+            )
+            .unwrap();
+        }
+        {
+            let db = crate::db_open(&database).unwrap();
+            let entries = load(&db, &dir).unwrap();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].retry_at, Some(1));
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn paths_and_retry_deadlines_survive_reopen_without_reading_image_files() {
         let dir = std::env::temp_dir().join(format!("cover-index-{}", uuid::Uuid::new_v4()));

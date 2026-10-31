@@ -380,3 +380,32 @@ it("ignores restored paths when artwork identity or its permitted fallback chang
   await catalog.hydrate();
   expect(lookup).toHaveBeenCalledWith(["current", "new-fallback"]);
 });
+it("keeps failed covers settled while retrying and restores overdue retries without rebuilding cached covers", async () => {
+  let now = 1000,
+    finish!: (path: string) => void;
+  const options = {
+    lookup: vi.fn(async () => []),
+    prepare: vi.fn(() => new Promise<string>((r) => (finish = r))),
+    foregroundBusy: () => false,
+    changed: () => {},
+    now: () => now,
+  };
+  const c = new ArtworkCatalog(options);
+  c.reconcile(["cached", "failed"]);
+  c.restore([
+    { url: "cached", path: "disk:cached" },
+    { url: "failed", retryAt: 500 },
+  ]);
+  expect(c.stats()).toMatchObject({ prepared: 1, retrying: 1, pending: 0 });
+  const work = c.step();
+  expect(c.stats()).toMatchObject({
+    prepared: 1,
+    retrying: 1,
+    pending: 0,
+    working: true,
+  });
+  finish("disk:failed");
+  await work;
+  expect(c.stats()).toMatchObject({ prepared: 2, retrying: 0, pending: 0 });
+  expect(options.lookup).not.toHaveBeenCalled();
+});

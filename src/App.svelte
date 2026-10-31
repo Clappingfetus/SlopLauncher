@@ -1,4 +1,5 @@
 <script lang="ts">
+  import MetadataStatus from "./components/MetadataStatus.svelte";
   import { releaseLabel, exactReleaseDate } from "./lib/release-date";
   import {
     baselineMetadata,
@@ -882,9 +883,10 @@
         : presentedGames.filter((g) => !g.hidden),
     ),
   );
-  let gapCount = $derived(
-    presentedGames.filter((g) => missingFields(g).length > 0).length,
-  );
+  let failedCovers = $derived.by(() => {
+    void $artworkCatalogState;
+    return api.failedArtwork();
+  });
   let artworkCredits = $derived(
     selected
       ? (["cover", "hero"] as const).flatMap((slot) => {
@@ -1194,9 +1196,15 @@
   // An empty selection is useful when mode first opens; after a game has been
   // selected, clearing the final selection should return to normal browsing.
   $effect(() => {
-    if (!selectionMode) { selectionHadGames = false; return; }
+    if (!selectionMode) {
+      selectionHadGames = false;
+      return;
+    }
     if (selectionIds.size) selectionHadGames = true;
-    else if (selectionHadGames) { selectionMode = false; selectionHadGames = false; }
+    else if (selectionHadGames) {
+      selectionMode = false;
+      selectionHadGames = false;
+    }
   });
   let selectionAnchor = "";
   let banishTargets = $state.raw<string[]>([]);
@@ -2438,6 +2446,14 @@
             ></span
           ><b>{banishedGroups.length}</b><ChevronDown size={16} /></button
         >
+        <MetadataStatus
+          games={presentedGames}
+          failures={failedCovers}
+          onrefresh={scanMissingMetadata}
+          busy={enrichmentProgress.running + enrichmentProgress.queued > 0 ||
+            demoMode ||
+            !ready}
+        />
         <div class="setup-entry">
           <p>
             Need help connecting your games, artwork or achievements? Set up
@@ -3024,13 +3040,24 @@
         </div>
       </main>
     {:else if page === "home"}
-      <div class:compact-library={!settings.comfortableLibrary} class="library-page home-grid-measure" aria-hidden="true"><div class="library-viewport" bind:clientWidth={homeLibraryWidth}></div></div>
+      <div
+        class:compact-library={!settings.comfortableLibrary}
+        class="library-page home-grid-measure"
+        aria-hidden="true"
+      >
+        <div class="library-viewport" bind:clientWidth={homeLibraryWidth}></div>
+      </div>
       <HomeScreen
         shelves={homeShelves}
         cardWidth={(() => {
           const gap = settings.comfortableLibrary ? 24 : 16;
-          const minimum = Math.round(settings.coverSize * (settings.comfortableLibrary ? 1 : 0.75));
-          const columns = Math.max(1, Math.floor((homeLibraryWidth + gap) / (minimum + gap)));
+          const minimum = Math.round(
+            settings.coverSize * (settings.comfortableLibrary ? 1 : 0.75),
+          );
+          const columns = Math.max(
+            1,
+            Math.floor((homeLibraryWidth + gap) / (minimum + gap)),
+          );
           return (homeLibraryWidth - 4 - gap * (columns - 1)) / columns;
         })()}
         {ready}
@@ -3413,7 +3440,6 @@
         downloads={artworkDownloads}
         catalog={$artworkCatalogState}
         enabled={settings.autoFillGaps !== false}
-        missing={gapCount}
       />
     {/if}
   </div>

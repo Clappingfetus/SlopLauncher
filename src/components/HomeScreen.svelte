@@ -240,11 +240,7 @@
     border-radius: 5px;
     padding: 2px 6px;
   }
-  .home-heading p {
-    color: var(--muted);
-    font-size: 11px;
-    margin-top: 6px;
-  }
+
   .home-heading > div:last-child {
     display: flex;
     align-items: center;

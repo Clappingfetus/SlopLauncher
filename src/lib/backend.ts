@@ -442,6 +442,7 @@ export const setArtworkWindow = (owner: unknown, requests: ArtworkRequest[]) =>
 export const clearArtworkWindow = (owner: unknown) =>
   artworkLoader.clearWindow(owner);
 export const artworkStats = () => artworkLoader.stats();
+export const failedArtwork = () => artworkCatalog.failed();
 
 export async function listenArtworkDownloads(update: (delta: number) => void) {
   if (!desktop) return () => {};

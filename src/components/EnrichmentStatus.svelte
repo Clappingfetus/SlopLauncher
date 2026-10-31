@@ -1,14 +1,13 @@
 <script lang="ts">
-  import { RotateCw } from "@lucide/svelte";
+  import { RotateCw, Library, Image, Database, Layers } from "@lucide/svelte";
   import { onDestroy } from "svelte";
   import { ActivityLatch } from "../lib/activity-latch";
-  import { sourceNames, type AccountSource } from "../lib/types";
+  import type { AccountSource } from "../lib/types";
   import type { EnrichmentProgress } from "../lib/enrichment";
   let {
     progress,
     onrefresh,
     enabled,
-    missing,
     syncing = [],
     downloads = 0,
     catalog = { total: 0, prepared: 0, working: false },
@@ -16,7 +15,6 @@
     progress: EnrichmentProgress;
     onrefresh?: () => void;
     enabled: boolean;
-    missing: number;
     syncing?: AccountSource[];
     downloads?: number;
     catalog?: {
@@ -30,203 +28,164 @@
   } = $props();
   let libraryWorking = $state(false),
     downloadWorking = $state(false);
-  const libraryActivity = new ActivityLatch(
-    (value) => (libraryWorking = value),
-  );
-  const downloadActivity = new ActivityLatch(
-    (value) => (downloadWorking = value),
-  );
-  $effect(() => libraryActivity.update(syncing.length > 0));
-  $effect(() => downloadActivity.update(downloads > 0));
+  const libraries = new ActivityLatch((v) => (libraryWorking = v)),
+    artwork = new ActivityLatch((v) => (downloadWorking = v));
+  $effect(() => libraries.update(syncing.length > 0));
+  $effect(() => artwork.update(downloads > 0));
   onDestroy(() => {
-    libraryActivity.dispose();
-    downloadActivity.dispose();
+    libraries.dispose();
+    artwork.dispose();
   });
   let active = $derived(progress.running + progress.queued > 0);
-  let metadataStatus = $derived(
-    active
-      ? `${progress.completed}/${progress.total}`
-      : !enabled
-        ? "Paused"
-        : missing
-          ? `${missing} gaps`
-          : "Complete",
+  let settled = $derived(
+    Math.min(catalog.total, catalog.prepared + (catalog.retrying ?? 0)),
   );
-  let metadataDetail = $derived(
-    active
-      ? `${progress.completed} of ${progress.total} metadata and resource checks; ${missing} games with gaps`
-      : !enabled
-        ? "Automatic artwork and metadata search is off"
-        : missing
-          ? `${missing} games have gaps. Refresh to scan missing metadata.`
-          : "Artwork and metadata complete",
-  );
+  let cacheActive = $derived((catalog.pending ?? 0) > 0);
 </script>
 
-<section class="enrichment-status" aria-label="Background activity">
-  <div
-    class="activity-lane"
-    title={syncing.length
-      ? `Syncing ${syncing.map((s) => sourceNames[s]).join(", ")}`
-      : "No library sync running"}
-  >
-    <div class="lane-heading">
-      <span>Libraries</span><span class="lane-value"
-        >{libraryWorking ? "Syncing" : "Idle"}</span
+<section class="activity-bar" aria-label="Background activity">
+  <div class="activity-item" title="Connected library synchronization">
+    <span class="item-icon"><Library size={15} /></span>
+    <div class="item-body">
+      <span class="item-label">Libraries</span><span
+        class:working={libraryWorking}
+        class="item-state">{libraryWorking ? "Syncing" : "Up to date"}</span
       >
     </div>
-    <div class="lane-detail">
-      <span class:busy={libraryWorking} class="activity-dot"
-      ></span>Owned-library sync
-    </div>
   </div>
-  <div
-    class="activity-lane"
-    title={`${downloads} artwork downloads currently active. Short requests are grouped into one activity session; cached images load from disk.`}
-  >
-    <div class="lane-heading">
-      <span>Downloads</span><span class="lane-value"
-        >{downloadWorking ? "Working" : "Idle"}</span
+  <div class="activity-item" title="Artwork download activity">
+    <span class="item-icon"><Image size={15} /></span>
+    <div class="item-body">
+      <span class="item-label">Downloads</span><span
+        class:working={downloadWorking}
+        class="item-state">{downloadWorking ? "Working" : "Idle"}</span
       >
     </div>
-    <div class="lane-detail">
-      <span class:busy={downloadWorking} class="activity-dot"></span>Artwork
-    </div>
   </div>
-  <div class="activity-lane metadata-lane" title={metadataDetail}>
+  <div class="activity-item progress-item">
+    <span class="item-icon"><Database size={15} /></span>
     <button
-      class="metadata-refresh"
+      class="refresh"
       aria-label="Scan missing metadata"
-      title="Scan all games missing artwork or metadata"
+      title="Scan games missing metadata"
       disabled={active || !onrefresh}
-      onclick={onrefresh}><RotateCw size={13} /></button
+      onclick={onrefresh}><RotateCw size={14} /></button
     >
-    <div class="lane-heading">
-      <span>Metadata</span><span class="lane-value">{metadataStatus}</span>
-    </div>
-    <div class="lane-detail">
+    <div class="item-body">
+      <div class="item-top">
+        <span class="item-label">Metadata</span><span class="item-state"
+          >{active
+            ? `${progress.completed} / ${progress.total}`
+            : enabled
+              ? "Ready"
+              : "Paused"}</span
+        >
+      </div>
       <progress
-        class:inactive={!active}
         aria-label="Metadata and resource checks"
-        aria-valuetext={metadataDetail}
-        max={Math.max(1, progress.total)}
+        max={Math.max(progress.total, 1)}
         value={active ? progress.completed : 0}
+        class:quiet={!active}
       ></progress>
     </div>
   </div>
-  <div
-    class="activity-lane cover-cache"
-    title={`${catalog.prepared} of ${catalog.total} covers cached on disk.${catalog.retrying ? ` ${catalog.retrying} unavailable covers waiting to retry${catalog.nextRetryAt ? ` from ${new Date(catalog.nextRetryAt).toLocaleTimeString()}` : ""}.` : ""}${catalog.pending ? ` ${catalog.pending} covers still to prepare.` : ""}`}
-  >
-    <div class="lane-heading">
-      <span>Cover cache</span><span class="lane-value"
-        >{catalog.retrying && !catalog.pending && !catalog.working
-          ? `${catalog.retrying} retry`
-          : catalog.total
-            ? `${catalog.prepared}/${catalog.total}`
-            : "—"}</span
-      >
-    </div>
-    <div class="lane-detail">
+  <div class="activity-item progress-item cache-item">
+    <span class="item-icon"><Layers size={15} /></span>
+    <div class="item-body">
+      <div class="item-top">
+        <span class="item-label">Cover cache</span><span class="item-state"
+          >{!catalog.total
+            ? "Ready"
+            : cacheActive
+              ? `${settled} / ${catalog.total}`
+              : "Complete"}</span
+        >
+      </div>
       <progress
         aria-label="Cover cache preparation"
-        max={Math.max(1, catalog.total)}
-        value={catalog.prepared}
+        max={Math.max(catalog.total, 1)}
+        value={settled}
       ></progress>
     </div>
   </div>
 </section>
 
 <style>
-  /* Fixed tracks and permanent slots: activity changes never alter sibling positions.
-     Counts align to the right using tabular digits; long values stay in their track. */
-  .enrichment-status {
+  .activity-bar {
     flex-shrink: 0;
     display: grid;
     grid-template-columns:
-      minmax(0, 0.9fr) minmax(0, 0.9fr) minmax(0, 1.2fr)
-      minmax(0, 1.2fr);
-    gap: 24px;
-    padding: 8px 28px;
+      minmax(115px, 0.85fr) minmax(115px, 0.85fr) minmax(190px, 1.4fr)
+      minmax(190px, 1.4fr);
+    gap: 0;
+    padding: 10px 24px;
     border-top: 1px solid var(--line);
     background: var(--sidebar);
     color: var(--muted);
-    font-size: 11px;
   }
-  .metadata-lane {
-    position: relative;
-    padding-left: 24px;
+  .activity-item {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 0 20px;
+    border-right: 1px solid var(--line);
   }
-  .metadata-refresh {
-    position: absolute;
-    left: 0;
-    top: 5px;
+  .activity-item:first-child {
+    padding-left: 0;
+  }
+  .activity-item:last-child {
+    padding-right: 0;
+    border: 0;
+  }
+  .item-icon {
     display: grid;
     place-items: center;
-    width: 20px;
-    height: 24px;
-    padding: 0;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .metadata-refresh:hover:not(:disabled) {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border: 1px solid var(--line);
+    border-radius: 9px;
     color: var(--accent);
     background: var(--surface);
   }
-  .metadata-refresh:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  .activity-lane {
+  .item-body {
     min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
-  .lane-heading {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 12ch;
-    align-items: center;
-    height: 15px;
-    gap: 6px;
-  }
-  .lane-heading > span {
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .item-label {
+    font-size: 11px;
+    color: var(--text);
+    font-weight: 600;
     white-space: nowrap;
   }
-  .lane-value {
-    text-align: right;
+  .item-state {
+    font-size: 10px;
+    color: var(--faint);
     font-variant-numeric: tabular-nums;
-    color: var(--text);
+    white-space: nowrap;
   }
-  .lane-detail {
+  .item-state.working {
+    color: var(--accent);
+  }
+  .item-top {
     display: flex;
     align-items: center;
-    gap: 6px;
-    height: 12px;
-    margin-top: 4px;
-    color: var(--faint);
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
+    justify-content: space-between;
+    gap: 8px;
   }
-  .activity-dot {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--line);
-  }
-  .activity-dot.busy {
-    background: var(--accent);
+  .item-top .item-state {
+    text-align: right;
+    min-width: 9ch;
   }
   progress {
-    display: block;
     width: 100%;
     height: 3px;
     border: 0;
-    border-radius: 3px;
+    border-radius: 4px;
     overflow: hidden;
     background: var(--line);
     accent-color: var(--accent);
@@ -237,23 +196,55 @@
   progress::-webkit-progress-value {
     background: var(--accent);
   }
-  progress.inactive {
-    opacity: 0.45;
+  progress.quiet {
+    opacity: 0.35;
+  }
+  .refresh {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+  }
+  .refresh:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .refresh:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   @media (max-width: 1200px) {
-    .enrichment-status {
-      gap: 16px;
-      padding-inline: 20px;
+    .activity-bar {
+      padding-inline: 16px;
     }
-    .lane-heading {
-      grid-template-columns: minmax(0, 1fr) 10ch;
-      font-size: 10px;
+    .activity-item {
+      padding-inline: 12px;
+      gap: 8px;
+    }
+    .item-icon {
+      width: 28px;
+      height: 28px;
+    }
+    .item-top .item-state {
+      min-width: 7ch;
     }
   }
   @media (max-width: 950px) {
-    .enrichment-status {
+    .activity-bar {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 24px;
+      gap: 10px 0;
+    }
+    .activity-item:nth-child(2) {
+      border: 0;
+    }
+    .activity-item:nth-child(3) {
+      padding-left: 0;
     }
   }
 </style>

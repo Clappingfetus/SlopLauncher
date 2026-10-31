@@ -70,10 +70,7 @@ export class ArtworkCatalog {
         )
           continue;
         if (record.path) this.remember(record.url, record.path, source);
-        else if (
-          record.retryAt &&
-          record.retryAt > (this.options.now ?? Date.now)()
-        ) {
+        else if (record.retryAt !== undefined && record.retryAt > 0) {
           this.retries.set(record.url, record.retryAt);
           this.unchecked.delete(record.url);
         }
@@ -142,6 +139,9 @@ export class ArtworkCatalog {
     this.retries.delete(url);
     this.record(url);
     this.options.changed();
+  }
+  failed() {
+    return [...this.retries].map(([url, retryAt]) => ({ url, retryAt }));
   }
   stats() {
     return {
@@ -223,7 +223,6 @@ export class ArtworkCatalog {
     );
     if (!url) return;
     this.active.add(url);
-    this.retries.delete(url);
     this.options.changed();
     const candidates = [url, ...(this.fallbacks.get(url) ?? [])];
     try {
