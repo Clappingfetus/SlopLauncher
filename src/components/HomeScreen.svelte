@@ -86,7 +86,6 @@
   <div class="home-heading">
     <div>
       <h1>Home <span>{count}</span></h1>
-      <p>Drag a row title to arrange your shelves.</p>
     </div>
     <div>
       <button class="text-button" onclick={() => onorder([])}
