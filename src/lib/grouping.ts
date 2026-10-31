@@ -26,7 +26,7 @@ export const groupOptions: [GroupMode, string][] = [
   ["added", "Date added"],
   ["hltb", "HLTB · Main + Extras"],
   ["rating", "Consensus rating"],
-  ["smart", "Smart groups"],
+  ["smart", "Smart Collections"],
 ];
 export const fields: [RuleField, string][] = [
   ["tags", "Tags / genres"],

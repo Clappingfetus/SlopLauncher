@@ -23,6 +23,7 @@
     Plus,
     Search,
     SlidersHorizontal,
+    Sparkles,
     ChevronDown,
     ArrowLeft,
     ArrowUpRight,
@@ -51,7 +52,7 @@
   import HomeScreen from "./components/HomeScreen.svelte";
   import { buildHomeShelves, orderHomeShelves } from "./lib/home";
   import VirtualGrid from "./components/VirtualGrid.svelte";
-  import SmartGroupEditor from "./components/SmartGroupEditor.svelte";
+  import SmartCollectionEditor from "./components/SmartCollectionEditor.svelte";
   import { groupGames, groupOptions, validateGroups } from "./lib/grouping";
   import type { GroupMode, SmartGroup, Copy } from "./lib/types";
   import GameLinks from "./components/GameLinks.svelte";
@@ -201,8 +202,7 @@
     name: "",
     gameIds: [],
   });
-  let groupingEditorDraft = $state<SmartGroup[] | null>(null);
-  let collectionReturnToGroups = $state(false);
+  let smartCollectionDraft = $state<GameCollection | undefined>();
   let collections = $derived(demoMode ? [] : (settings.collections ?? []));
   let activeCollection = $derived(
     isCollectionFilter(filter)
@@ -836,7 +836,8 @@
     persist();
   }
   let groupingMode = $derived(
-    groupOptions.some(([id]) => id === settings.libraryGrouping)
+    settings.libraryGrouping !== "smart" &&
+      groupOptions.some(([id]) => id === settings.libraryGrouping)
       ? settings.libraryGrouping!
       : ("none" as GroupMode),
   );
@@ -869,11 +870,9 @@
       artworkRequests,
     ]),
   );
-  function saveSmartGroups(rules: SmartGroup[]) {
-    settings.smartGroups = validateGroups(rules);
-    settings.libraryGrouping = rules.length ? "smart" : "none";
-    persistSettings();
-    closeModal();
+  function newSmartCollection() {
+    smartCollectionDraft = undefined;
+    openModal("grouping");
   }
   let tags = $derived(
     libraryTags(
@@ -1159,15 +1158,20 @@
     collectionDraft = collection
       ? structuredClone($state.snapshot(collection))
       : { id: crypto.randomUUID(), name: "", gameIds: gameId ? [gameId] : [] };
-    openModal("collection");
+    if (
+      collection?.rule?.mode === "smart" &&
+      collection.rule.groupId !== "other"
+    ) {
+      smartCollectionDraft = structuredClone($state.snapshot(collection));
+      openModal("grouping");
+    } else openModal("collection");
   }
   function commitCollection(value: GameCollection) {
     if (demoMode) return;
     const existing = collections.some((c) => c.id === value.id);
     settings.collections = saveCollection(collections, value, games);
     persistSettings();
-    collectionReturnToGroups = false;
-    groupingEditorDraft = null;
+    smartCollectionDraft = undefined;
     closeModal();
     if (!existing && !selectedId) navigate(`collection:${value.id}`);
     notify(existing ? "Collection saved." : "Collection created.");
@@ -1441,7 +1445,6 @@
     if (selectedId) page = detailsOrigin;
   }
   function openModal(value: typeof modal) {
-    if (value === "grouping") groupingEditorDraft = null;
     formError = "";
     if (value === "metadata") {
       metadataId = String(selected?.metadataId ?? "");
@@ -1520,12 +1523,7 @@
     }
   }
   function closeModal() {
-    if (modal === "collection" && collectionReturnToGroups) {
-      collectionReturnToGroups = false;
-      modal = "grouping";
-      return;
-    }
-    if (modal === "grouping") groupingEditorDraft = null;
+    if (modal === "grouping") smartCollectionDraft = undefined;
     if (modal === "metadata") {
       metadataRequest++;
       if (busy === "search-metadata" || busy === "metadata") busy = "";
@@ -3115,6 +3113,12 @@
                     Number(!!sourceFilter) +
                     Number(activitySource !== "all")}</span
                 >{/if}</button
+            ><button
+              class="smart-collections-link"
+              onclick={newSmartCollection}
+              disabled={demoMode || !ready}
+              title="Create a collection that updates automatically"
+              ><Sparkles size={14} />Smart Collections</button
             >
           </div>
           <div class="library-layout-controls">
@@ -3135,15 +3139,11 @@
                     .value as GroupMode;
                   persistSettings();
                 }}
-                >{#each groupOptions as [value, label]}<option {value}
-                    >{label}</option
+                >{#each groupOptions.filter(([id]) => id !== "smart") as [value, label]}<option
+                    {value}>{label}</option
                   >{/each}</select
               ><ChevronDown size={12} /></label
             >
-            {#if groupingMode === "smart"}<button
-                class="text-button"
-                onclick={() => openModal("grouping")}>Edit smart groups</button
-              >{/if}
             <div class="sort-control">
               <span>Sort by</span><select
                 aria-label="Sort library"
@@ -3490,7 +3490,9 @@
                         : modal === "artwork"
                           ? "Change Artwork"
                           : modal === "grouping"
-                            ? "Smart grouping"
+                            ? smartCollectionDraft
+                              ? "Edit Smart Collection"
+                              : "New Smart Collection"
                             : "Screenshot"}
       </h2>
       <button
@@ -3540,19 +3542,13 @@
         />
       {/key}
     {:else if modal === "grouping"}
-      <SmartGroupEditor
-        initial={groupingEditorDraft ?? settings.smartGroups ?? []}
-        games={presentedGames.filter(
-          (g) => settings.showHiddenGames || !g.hidden,
-        )}
-        onsave={saveSmartGroups}
-        oncollection={demoMode
-          ? undefined
-          : (rules, id, draft) => {
-              groupingEditorDraft = draft;
-              collectionReturnToGroups = true;
-              collectionFromGroup(id, rules, "smart");
-            }}
+      <SmartCollectionEditor
+        initial={smartCollectionDraft}
+        games={presentedGames}
+        now={clockTime}
+        legacy={settings.smartGroups ?? []}
+        onsave={commitCollection}
+        ondelete={smartCollectionDraft ? deleteCollection : undefined}
         oncancel={closeModal}
       />
     {:else if modal === "collection"}

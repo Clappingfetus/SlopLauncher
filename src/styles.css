@@ -2786,3 +2786,7 @@ dialog.banished-dialog{max-width:850px;width:calc(100vw - 48px)}
 .bulk-actions select,.banished-controls input{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:12px;}
 .card-select:not(.visible){top:auto;bottom:9px;pointer-events:none;}
 .game-card:hover .card-select,.card-select:focus-visible,.card-select.visible{pointer-events:auto;}
+/* Smart Collections is a dedicated workflow; keep its action next to Filters. */
+.filter-pills .smart-collections-link { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); border: 1px solid var(--line); border-radius: 6px; background: transparent; white-space: nowrap; }
+.filter-pills .smart-collections-link:hover:not(:disabled) { border-color: var(--accent); background: var(--surface); }
+dialog.grouping-dialog { width: 980px; max-width: calc(100vw - 40px); }
