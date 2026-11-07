@@ -149,7 +149,7 @@
   import epicIcon from "./assets/source-icons/epic.png";
   import amazonIcon from "./assets/source-icons/amazon.png";
   import gogIcon from "./assets/source-icons/gog.ico";
-  import itchIcon from "./assets/source-icons/itch.ico";
+  import itchIcon from "./assets/source-icons/itch.svg";
 
   const sourceIcons: Partial<Record<Source, string>> = {
     steam: steamIcon,

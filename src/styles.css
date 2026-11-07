@@ -395,6 +395,9 @@ nav button.nav-active,
   color: #fff;
   font-weight: 800;
 }
+.source-nav .store-icon[data-source="itch"] img {
+  padding: 3px;
+}
 .store-icon[data-source="gog"] {
   font-size: 11px;
 }
