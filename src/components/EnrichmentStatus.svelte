@@ -45,71 +45,59 @@
 
 <section class="activity-bar" aria-label="Background activity">
   <div class="activity-item" title="Connected library synchronization">
-    <span class="item-icon"><Library size={15} /></span>
-    <div class="item-body">
-      <span class="item-label">Libraries</span><span
-        class:working={libraryWorking}
-        class="item-state">{libraryWorking ? "Syncing" : "Up to date"}</span
-      >
-    </div>
+    <Library size={13} class="item-icon" />
+    <span class="item-label">Libraries</span>
+    <span class:working={libraryWorking} class="item-state"
+      >{libraryWorking ? "Syncing" : "Up to date"}</span
+    >
   </div>
   <div class="activity-item" title="Artwork download activity">
-    <span class="item-icon"><Image size={15} /></span>
-    <div class="item-body">
-      <span class="item-label">Downloads</span><span
-        class:working={downloadWorking}
-        class="item-state">{downloadWorking ? "Working" : "Idle"}</span
-      >
-    </div>
+    <Image size={13} class="item-icon" />
+    <span class="item-label">Downloads</span>
+    <span class:working={downloadWorking} class="item-state"
+      >{downloadWorking ? "Working" : "Idle"}</span
+    >
   </div>
   <div class="activity-item progress-item">
-    <span class="item-icon"><Database size={15} /></span>
-    <div class="item-body">
-      <div class="item-top">
-        <span class="item-label">Metadata</span><span class="item-state"
-          >{active
-            ? `${progress.completed} / ${progress.total}`
-            : enabled
-              ? "Ready"
-              : "Paused"}</span
-        >
-      </div>
-      <div class="metadata-progress">
-        <button
-          class="refresh"
-          aria-label="Scan missing metadata"
-          title="Scan games missing metadata"
-          disabled={active || !onrefresh}
-          onclick={onrefresh}><RotateCw size={12} /></button
-        >
-        <progress
-          aria-label="Metadata and resource checks"
-          max={Math.max(progress.total, 1)}
-          value={active ? progress.completed : 0}
-          class:quiet={!active}
-        ></progress>
-      </div>
-    </div>
+    <Database size={13} class="item-icon" />
+    <span class="item-label">Metadata</span>
+    <button
+      class="refresh"
+      aria-label="Scan missing metadata"
+      title="Scan games missing metadata"
+      disabled={active || !onrefresh}
+      onclick={onrefresh}><RotateCw size={12} /></button
+    >
+    <progress
+      aria-label="Metadata and resource checks"
+      max={Math.max(progress.total, 1)}
+      value={active ? progress.completed : 0}
+      class:quiet={!active}
+    ></progress>
+    <span class="item-state progress-state"
+      >{active
+        ? `${progress.completed} / ${progress.total}`
+        : enabled
+          ? "Ready"
+          : "Paused"}</span
+    >
   </div>
   <div class="activity-item progress-item cache-item">
-    <span class="item-icon"><Layers size={15} /></span>
-    <div class="item-body">
-      <div class="item-top">
-        <span class="item-label">Cover cache</span><span class="item-state"
-          >{!catalog.total
-            ? "Ready"
-            : cacheActive
-              ? `${settled} / ${catalog.total}`
-              : "Complete"}</span
-        >
-      </div>
-      <progress
-        aria-label="Cover cache preparation"
-        max={Math.max(catalog.total, 1)}
-        value={cacheActive ? settled : 0}
-        class:quiet={!cacheActive}
-      ></progress>
-    </div>
+    <Layers size={13} class="item-icon" />
+    <span class="item-label">Cover cache</span>
+    <progress
+      aria-label="Cover cache preparation"
+      max={Math.max(catalog.total, 1)}
+      value={cacheActive ? settled : 0}
+      class:quiet={!cacheActive}
+    ></progress>
+    <span class="item-state progress-state"
+      >{!catalog.total
+        ? "Ready"
+        : cacheActive
+          ? `${settled} / ${catalog.total}`
+          : "Complete"}</span
+    >
   </div>
 </section>
 
@@ -117,75 +105,63 @@
   .activity-bar {
     flex-shrink: 0;
     display: grid;
-    grid-template-columns:
-      minmax(115px, 0.85fr) minmax(115px, 0.85fr) minmax(190px, 1.4fr)
-      minmax(190px, 1.4fr);
-    gap: 0;
-    padding: 10px 24px;
-    border-top: 1px solid var(--line);
-    background: var(--sidebar);
-    color: var(--muted);
+    grid-template-columns: minmax(130px, 0.85fr) minmax(120px, 0.8fr) minmax(
+        230px,
+        1.6fr
+      ) minmax(210px, 1.5fr);
+    min-height: 34px;
+    padding: 0 16px;
+    border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+    background: var(--bg);
+    color: var(--faint);
   }
   .activity-item {
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 11px;
-    padding: 0 20px;
-    border-right: 1px solid var(--line);
+    gap: 8px;
+    padding: 4px 12px;
+    border-right: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
   }
   .activity-item:first-child {
     padding-left: 0;
   }
   .activity-item:last-child {
     padding-right: 0;
-    border: 0;
+    border-right: 0;
   }
   .item-icon {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
+    color: var(--faint);
     flex-shrink: 0;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    color: var(--accent);
-    background: var(--surface);
   }
-  .item-body {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+  .item-label,
+  .item-state {
+    white-space: nowrap;
+    font-size: 10px;
+    line-height: 1;
   }
   .item-label {
-    font-size: 11px;
-    color: var(--text);
+    color: var(--muted);
     font-weight: 600;
-    white-space: nowrap;
   }
   .item-state {
-    font-size: 10px;
     color: var(--faint);
     font-variant-numeric: tabular-nums;
-    white-space: nowrap;
   }
   .item-state.working {
     color: var(--accent);
   }
-  .item-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+  .activity-item:not(.progress-item) .item-state {
+    margin-left: auto;
   }
-  .item-top .item-state {
+  .progress-state {
+    min-width: 8ch;
     text-align: right;
-    min-width: 9ch;
   }
   progress {
+    min-width: 24px;
     width: 100%;
+    flex: 1;
     height: 3px;
     border: 0;
     border-radius: 4px;
@@ -202,58 +178,53 @@
   progress.quiet {
     opacity: 0.35;
   }
-  .metadata-progress {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .metadata-progress progress {
-    min-width: 0;
-    flex: 1;
-  }
   .refresh {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     display: grid;
     place-items: center;
     flex-shrink: 0;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    color: var(--muted);
+    margin-right: -4px;
+    border-radius: 5px;
+    color: var(--faint);
     background: transparent;
     cursor: pointer;
   }
-  .refresh:hover:not(:disabled) {
+  .refresh:hover:not(:disabled),
+  .refresh:focus-visible {
     color: var(--accent);
-    border-color: var(--accent);
+    background: var(--surface-hover);
   }
   .refresh:disabled {
     opacity: 0.4;
     cursor: default;
   }
-  @media (max-width: 1200px) {
+  @media (max-width: 1100px) {
     .activity-bar {
-      padding-inline: 16px;
+      padding-inline: 10px;
+      grid-template-columns: minmax(105px, 0.85fr) minmax(100px, 0.8fr) minmax(
+          195px,
+          1.6fr
+        ) minmax(180px, 1.5fr);
     }
     .activity-item {
-      padding-inline: 12px;
-      gap: 8px;
+      gap: 5px;
+      padding-inline: 8px;
     }
-    .item-icon {
-      width: 28px;
-      height: 28px;
-    }
-    .item-top .item-state {
+    .progress-state {
       min-width: 7ch;
     }
   }
-  @media (max-width: 950px) {
+  @media (max-width: 820px) {
     .activity-bar {
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 0;
+      padding-block: 3px;
+    }
+    .activity-item {
+      padding-block: 1px;
     }
     .activity-item:nth-child(2) {
-      border: 0;
+      border-right: 0;
     }
     .activity-item:nth-child(3) {
       padding-left: 0;
