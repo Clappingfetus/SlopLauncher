@@ -125,6 +125,8 @@ struct VersionPreference {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Settings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sidebar_width: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     home_row_order: Vec<String>,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -161,6 +163,7 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            sidebar_width: None,
             home_row_order: vec![],
             hide_duplicate_games: false,
             preferred_source: None,
@@ -1382,6 +1385,16 @@ mod tests {
         assert_eq!(read_settings(&db).unwrap().home_row_order,settings.home_row_order);
         settings.home_row_order.push("long".into());assert!(store_settings(&settings,&db).is_err());
         assert_eq!(read_settings(&db).unwrap().home_row_order.len(),3);
+    }
+    #[test]
+    fn sidebar_width_roundtrips_and_legacy_settings_load() {
+        let legacy = serde_json::json!({"coverSize":176,"theme":"dark","startInstalled":false,"steamId":""});
+        let mut settings: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(settings.sidebar_width, None);
+        settings.sidebar_width = Some(264);
+        let db = db_open(Path::new(":memory:")).unwrap();
+        store_settings(&settings, &db).unwrap();
+        assert_eq!(read_settings(&db).unwrap().sidebar_width, Some(264));
     }
     #[test]
     fn library_density_defaults_compact_and_roundtrips() {

@@ -230,6 +230,7 @@ export interface VersionPreference {
   selectedAt: number;
 }
 export interface Settings {
+  sidebarWidth?: number;
   homeRowOrder?: string[];
   hideDuplicateGames?: boolean;
   preferredSource?: Source;

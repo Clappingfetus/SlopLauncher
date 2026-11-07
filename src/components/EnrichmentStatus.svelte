@@ -130,7 +130,7 @@
     padding-right: 0;
     border-right: 0;
   }
-  .item-icon {
+  .activity-item :global(.item-icon) {
     color: var(--faint);
     flex-shrink: 0;
   }

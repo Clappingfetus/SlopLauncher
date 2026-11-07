@@ -164,6 +164,71 @@
     settings = $state<Settings>({ ...defaultSettings }),
     demoMode = $state(false),
     ready = $state(false);
+  let sidebarDragWidth = $state<number | null>(null);
+  let sidebarPointer = $state<number | null>(null);
+  const sidebarMinWidth = 168,
+    sidebarMaxWidth = 320;
+  function clampSidebarWidth(value: number) {
+    return Math.round(
+      Math.max(sidebarMinWidth, Math.min(sidebarMaxWidth, value)),
+    );
+  }
+  let sidebarWidth = $derived(
+    sidebarDragWidth ??
+      (Number.isFinite(settings.sidebarWidth)
+        ? clampSidebarWidth(settings.sidebarWidth!)
+        : null),
+  );
+  function beginSidebarResize(event: PointerEvent) {
+    if (event.button !== 0 || !ready) return;
+    const handle = event.currentTarget as HTMLElement;
+    sidebarPointer = event.pointerId;
+    sidebarDragWidth = Math.round(
+      handle.parentElement!.getBoundingClientRect().width,
+    );
+    handle.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  }
+  function moveSidebarResize(event: PointerEvent) {
+    if (event.pointerId !== sidebarPointer) return;
+    const handle = event.currentTarget as HTMLElement;
+    sidebarDragWidth = clampSidebarWidth(
+      Math.min(
+        event.clientX - handle.parentElement!.getBoundingClientRect().left,
+        window.innerWidth - 400,
+      ),
+    );
+  }
+  function endSidebarResize(event: PointerEvent, commit: boolean) {
+    if (event.pointerId !== sidebarPointer) return;
+    sidebarPointer = null;
+    if (commit && sidebarDragWidth !== null) {
+      settings.sidebarWidth = sidebarDragWidth;
+      persistSettings();
+    }
+    sidebarDragWidth = null;
+  }
+  function keySidebarResize(event: KeyboardEvent) {
+    if (
+      !ready ||
+      !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
+    )
+      return;
+    event.preventDefault();
+    const current = (
+      event.currentTarget as HTMLElement
+    ).parentElement!.getBoundingClientRect().width;
+    const width =
+      event.key === "Home"
+        ? sidebarMinWidth
+        : event.key === "End"
+          ? sidebarMaxWidth
+          : current + (event.key === "ArrowLeft" ? -8 : 8);
+    settings.sidebarWidth = clampSidebarWidth(
+      Math.min(width, window.innerWidth - 400),
+    );
+    persistSettings();
+  }
   let filter = $state<Filter>("all"),
     query = $state(""),
     installedOnly = $state(false),
@@ -2167,7 +2232,13 @@
     void refreshSteamHistory();
   }}
 />
-<div class="app-shell" inert={libraryMutation}>
+<div
+  class="app-shell"
+  inert={libraryMutation}
+  style:--sidebar-width={sidebarWidth === null
+    ? undefined
+    : `${sidebarWidth}px`}
+>
   <aside class="sidebar">
     <button class="brand" onclick={showHome} aria-label="SlopLauncher Home"
       ><span class="brand-mark"><AppLogo /></span><span
@@ -2276,7 +2347,10 @@
             class:nav-active={page === "library" && filter === source}
             onclick={() => navigate(source)}
             ><span class="store-icon" data-source={source} aria-hidden="true"
-              >{#if sourceIcons[source]}<img src={sourceIcons[source]} alt="" />{:else if source === "emulated"}◈{:else}+{/if}</span
+              >{#if sourceIcons[source]}<img
+                  src={sourceIcons[source]}
+                  alt=""
+                />{:else if source === "emulated"}◈{:else}+{/if}</span
             ><span>{sourceNames[source]}</span><span class="nav-count"
               >{browsableGames.filter((g) =>
                 g.copies.some((c) => c.source === source),
@@ -2305,6 +2379,25 @@
           : "Browser preview"}<span>v{appVersion}</span>
       </div>
     </div>
+    <!-- A focusable separator is the standard keyboard-accessible splitter control. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+    <div
+      class="sidebar-resize"
+      class:resizing={sidebarPointer !== null}
+      role="separator"
+      aria-label="Resize sidebar"
+      aria-orientation="vertical"
+      aria-valuemin={sidebarMinWidth}
+      aria-valuemax={sidebarMaxWidth}
+      aria-valuenow={sidebarWidth ?? 188}
+      tabindex="0"
+      onpointerdown={beginSidebarResize}
+      onpointermove={moveSidebarResize}
+      onpointerup={(event) => endSidebarResize(event, true)}
+      onpointercancel={(event) => endSidebarResize(event, false)}
+      onlostpointercapture={(event) => endSidebarResize(event, false)}
+      onkeydown={keySidebarResize}
+    ></div>
   </aside>
 
   <div class="workspace">

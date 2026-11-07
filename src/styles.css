@@ -101,12 +101,13 @@ a {
 .app-shell {
   height: 100dvh;
   display: grid;
-  grid-template-columns: 188px minmax(0, 1fr);
+  grid-template-columns: min(var(--sidebar-width, 188px), calc(100vw - 400px)) minmax(0, 1fr);
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
 }
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--sidebar);
@@ -114,6 +115,29 @@ a {
   padding: 29px 16px 16px;
   min-height: 0;
 }
+.sidebar-resize {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  right: -5px;
+  bottom: 0;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sidebar-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity .15s;
+}
+.sidebar-resize:hover::after, .sidebar-resize:focus-visible::after, .sidebar-resize.resizing::after { opacity: .7; }
+.sidebar-resize:focus-visible { outline: none; }
 .brand,
 .primary-nav,
 .sidebar-bottom {
@@ -1892,7 +1916,7 @@ form label > .optional {
 }
 @media (min-width: 1600px) {
   .app-shell {
-    grid-template-columns: 216px 1fr;
+    grid-template-columns: min(var(--sidebar-width, 216px), calc(100vw - 400px)) minmax(0, 1fr);
   }
   .library-page {
     padding-left: 48px;
@@ -1911,7 +1935,7 @@ form label > .optional {
 }
 @media (max-width: 1100px) {
   .app-shell {
-    grid-template-columns: 180px 1fr;
+    grid-template-columns: min(var(--sidebar-width, 180px), calc(100vw - 400px)) minmax(0, 1fr);
   }
   .sidebar {
     padding: 25px 12px 15px;
@@ -1966,6 +1990,7 @@ form label > .optional {
   .sidebar {
     padding: 22px 8px 15px;
   }
+  .sidebar-resize { display: none; }
   .brand {
     padding: 0;
     margin: 0 auto 32px;
@@ -2812,8 +2837,11 @@ dialog.grouping-dialog { width: 980px; max-width: calc(100vw - 40px); }
   .sidebar .source-nav button { padding: 6px 9px; gap: 9px; }
   .sidebar-library-nav { margin-top: 7px; }
   .sidebar-library-nav .nav-heading { margin: 12px 9px 7px; }
-  .collection-drag-instruction { margin: 0 10px 5px; }
-  .collection-nav-empty { padding: 4px 10px; }
+  .sidebar-library-nav .nav-heading:first-child { margin-bottom: 4px; }
+  .sidebar .collection-nav { gap: 0; }
+  .sidebar .collection-nav button { padding: 4px 9px; gap: 8px; }
+  .collection-drag-instruction { margin: 0 10px 3px; }
+  .collection-nav-empty { padding: 2px 10px; }
   .sidebar-bottom { padding-top: 9px; gap: 2px; }
   .sidebar-footer { margin-top: 16px; }
 }
