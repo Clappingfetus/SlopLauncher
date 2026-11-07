@@ -66,7 +66,7 @@ External data is cached and refreshed through a bounded background queue. New ga
 
 ## Getting started
 
-Download the [Windows x64 executable](https://github.com/Clappingfetus/SlopLauncher/releases/tag/v0.9.28) from the latest public prerelease. It requires Microsoft Edge WebView2 Runtime and is unsigned; see the release notes and checksum before running it.
+Download the [Windows x64 executable](https://github.com/Clappingfetus/SlopLauncher/releases/tag/v0.9.62) from the latest public prerelease. It requires Microsoft Edge WebView2 Runtime and is unsigned; see the release notes and checksum before running it.
 
 Prefer to build from source? You will need:
 
