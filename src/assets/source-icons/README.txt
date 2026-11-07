@@ -5,4 +5,3 @@ amazon.png: https://d13pe3bn1jpqwf.cloudfront.net/statics/2026-10-30/images/favi
 gog.ico: https://store-static-modular.gog-statics.com/en/assets/favicons/favicon.ico
 itch.svg: https://static.itch.io/images/itchio-textless-white.svg (official itch.io press kit)
 These brand assets belong to their respective owners.
-
