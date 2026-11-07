@@ -18,8 +18,8 @@ SlopLauncher brings your owned games, installed games, and manually added titles
 
 Built around responsive navigation, local persistence, and a quiet interface. **Early development:** expect rough edges and changing third-party integrations. There is no signed installer or automatic updater yet.
 
-![SlopLauncher library with fictional sample titles and original placeholder artwork](docs/media/library.png)
-*Actual application UI with fictional sample games and original placeholder covers. No account data, scraped metadata, or downloaded game artwork is included in this repository.*
+![SlopLauncher library with fictional sample titles and blurred cover artwork](docs/media/library.png)
+*Current application UI with fictional sample titles and blurred covers from a private library. No account data or real game titles are shown.*
 
 ## Yes, it is entirely vibe coded
 
