@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.svg" alt="SlopLauncher — a considered home for your PC game library" width="100%">
+  <img src="docs/media/banner.svg" alt="SlopLauncher — Your games. Your launcher. Open source." width="100%">
 </p>
 
 <p align="center">
