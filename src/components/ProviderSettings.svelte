@@ -44,12 +44,16 @@
       retroAchievements: { username: raUsername, apiKey: raKey },
       igdbClientId: clientId,
       igdbClientSecret: secret,
-      screenScraper: {
-        developerId: ssDeveloperId,
-        developerPassword: ssDeveloperPassword,
-        username: ssUsername,
-        password: ssPassword,
-      },
+      ...(only === "screenscraper"
+        ? {
+            screenScraper: {
+              developerId: ssDeveloperId,
+              developerPassword: ssDeveloperPassword,
+              username: ssUsername,
+              password: ssPassword,
+            },
+          }
+        : {}),
     },
   ) {
     if (busy) return;
@@ -181,7 +185,7 @@
       </div>
     </div>
   {/if}
-  {#if !only || only === "screenscraper"}
+  {#if only === "screenscraper"}
     <div class="provider-setting">
       <div class="provider-setting-title">
         <strong>ScreenScraper</strong><span

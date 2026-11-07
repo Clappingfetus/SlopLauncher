@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { FolderPlus, FolderOpen, X, LoaderCircle } from "@lucide/svelte";
+  import {
+    FolderPlus,
+    FolderOpen,
+    X,
+    LoaderCircle,
+    ChevronDown,
+  } from "@lucide/svelte";
   import { desktop, chooseLibraryFolder } from "../lib/backend";
   import { addLibraryFolder } from "../lib/folders";
   import { sourceNames, type AccountSource } from "../lib/types";
@@ -7,6 +13,7 @@
     source,
     paths = [],
     disabled = false,
+    compact = false,
     onchange,
     canBrowse = desktop,
     pick = chooseLibraryFolder,
@@ -14,6 +21,7 @@
     source: AccountSource;
     paths?: string[];
     disabled?: boolean;
+    compact?: boolean;
     onchange?: (source: AccountSource, paths: string[]) => Promise<void>;
     canBrowse?: boolean;
     pick?: () => Promise<string | null>;
@@ -61,12 +69,19 @@
   }
 </script>
 
-<section
+<details
   class="source-folders"
   aria-label={`${sourceNames[source]} library folders`}
+  open={!compact}
 >
-  <div class="folder-heading">
-    <span><FolderOpen size={13} />Library folders</span>
+  <summary class="folder-heading">
+    <span
+      ><FolderOpen size={13} />Library folders
+      <small>{paths.length || "Automatic"}</small></span
+    >
+    <span class="folder-manage">Manage <ChevronDown size={13} /></span>
+  </summary>
+  <div class="folder-actions">
     <button
       class="text-button"
       disabled={disabled || !canBrowse || pending || !onchange}
@@ -101,4 +116,4 @@
     Add each library location separately. Folders locate installed games;
     connecting an account imports owned games.
   </p>
-</section>
+</details>

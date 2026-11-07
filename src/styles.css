@@ -2848,3 +2848,51 @@ dialog.grouping-dialog { width: 980px; max-width: calc(100vw - 40px); }
   .sidebar-bottom { padding-top: 9px; gap: 2px; }
   .sidebar-footer { margin-top: 16px; }
 }
+
+/* Compact source cards keep connection actions and folder controls together. */
+.sources-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
+.sources-heading .page-description { max-width: 720px; margin-top: 8px; line-height: 1.55; }
+.sources-heading > button { flex-shrink: 0; margin-top: 8px; }
+.sources-page .account-toolbar { margin: 26px 0 12px; gap: 12px; }
+.sources-page .account-toolbar > span { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
+.sources-page .account-toolbar strong { color: var(--text); font-size: 14px; font-weight: 600; }
+.sources-page .account-toolbar small { color: var(--faint); font-size: 11px; }
+.sources-page .source-panels { grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); align-items: start; gap: 12px; margin-top: 0; }
+.sources-page .source-panel { padding: 17px; border-radius: 9px; }
+.sources-page .source-panel-top { gap: 11px; }
+.source-panel .store-icon.large { width: 38px; height: 38px; padding: 0; overflow: hidden; }
+.source-panel .store-icon.large img { width: 100%; height: 100%; object-fit: contain; }
+.source-panel .store-icon.large[data-source="itch"] img { padding: 5px; }
+.sources-page .source-panel h2 { font-size: 14px; font-weight: 600; }
+.sources-page .source-panel > p { line-height: 1.55; margin: 12px 0 3px; max-width: none; }
+.sources-page .source-panel > p.field-hint { margin: 5px 0 0; color: var(--faint); font-size: 11px; }
+.sources-page .account-summary { margin: 2px 0 0; gap: 3px; }
+.sources-page .source-panel-footer { margin-top: 11px; gap: 9px; }
+.sources-page .account-actions { gap: 10px; }
+.sources-page .source-folders { margin-top: 12px; padding-top: 0; }
+.source-folders summary { list-style: none; cursor: pointer; padding: 10px 0 2px; }
+.source-folders summary::-webkit-details-marker { display: none; }
+.source-folders summary small { color: var(--faint); font-size: 10px; margin-left: 3px; }
+.folder-manage { color: var(--accent); font-size: 11px; }
+.source-folders[open] .folder-manage { color: var(--faint); }
+.folder-actions { display: flex; justify-content: flex-end; margin-top: 4px; }
+.sources-page .source-folders p { margin-top: 6px; line-height: 1.5; }
+.sources-page .source-folders ul { margin: 4px 0; }
+.sources-page .discovery-panel { margin-top: 16px; padding: 16px 18px; }
+@media (max-width: 1050px) {
+  .sources-page .account-toolbar { flex-direction: row; align-items: center; }
+}
+@media (max-width: 760px) {
+  .sources-heading { flex-wrap: wrap; gap: 8px; }
+  .sources-heading > button { margin-top: 0; }
+  .sources-page .account-toolbar { flex-wrap: wrap; }
+}
+.sources-page .source-panel-top .connection-state { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+.sources-page .source-panel-footer { justify-content: flex-start; }
+.sources-page .source-panels .discovery-panel { margin: 0; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 10px 11px; align-items: start; padding: 17px; }
+.sources-page .source-panels .discovery-panel > svg { width: 38px; height: 38px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; color: var(--accent); }
+.sources-page .source-panels .discovery-panel h2 { font-size: 14px; font-weight: 600; margin: 2px 0 7px; }
+.sources-page .source-panels .discovery-panel p { line-height: 1.55; }
+.sources-page .source-panels .discovery-panel button { grid-column: 2; justify-self: start; margin: 0; }
+.folder-manage { display: inline-flex; align-items: center; gap: 5px; }
+.source-folders[open] .folder-manage svg { transform: rotate(180deg); }

@@ -116,8 +116,13 @@
 <section class="emulator-settings" aria-labelledby="emulators-heading">
   <div class="emulator-heading">
     <div>
-      <h3 id="emulators-heading">Emulators</h3>
-      <p>One profile for each emulator and console.</p>
+      <h3 id="emulators-heading">
+        Emulators <span class="alpha-badge">Experimental alpha</span>
+      </h3>
+      <p>
+        Emulator support is an early feature and may not work with every game.
+        Create one profile for each emulator and console.
+      </p>
     </div>
     <button
       class="secondary-button"
@@ -259,6 +264,16 @@
     font-size: 13px;
     font-weight: 500;
     margin: 0;
+  }
+  .alpha-badge {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 3px 7px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
   }
   p {
     font-size: 11px;

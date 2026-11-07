@@ -74,7 +74,8 @@
   {#if index === -1}
     <h2>Choose your connections</h2>
     <div class="choices">
-      {#each setupServices as service}<label class="choice"
+      {#each setupServices.filter((service) => service.id !== "screenscraper") as service}<label
+          class="choice"
           ><input type="checkbox" value={service.id} bind:group={chosen} /><span
             ><strong>{service.name}</strong><small>{service.purpose}</small
             ><small class="state"

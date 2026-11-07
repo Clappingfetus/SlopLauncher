@@ -15,8 +15,10 @@
   } from "../lib/accounts";
   import { desktop, openResource as openExternal } from "../lib/backend";
   import { onDestroy } from "svelte";
+  import type { Snippet } from "svelte";
   import ConnectionHelp from "./ConnectionHelp.svelte";
   import SourceFolders from "./SourceFolders.svelte";
+  import { sourceIcons } from "../lib/source-icons";
   import type { LibraryFolders } from "../lib/types";
   let {
     games,
@@ -31,11 +33,13 @@
     onSteamHistory,
     steamHistoryBusy = false,
     steamHistoryMessage = "",
+    children,
   }: {
     games: Game[];
     onSteamHistory?: () => void;
     steamHistoryBusy?: boolean;
     steamHistoryMessage?: string;
+    children?: Snippet;
     only?: AccountSource;
     accounts: AccountState[];
     manager: AccountManager;
@@ -124,7 +128,9 @@
 {#if !only}
   <div class="account-toolbar">
     <span
-      >Connected libraries follow your background sync interval in Settings.</span
+      ><strong>Your libraries</strong><small
+        >Sync follows your schedule in Settings.</small
+      ></span
     >
     <button
       class="secondary-button"
@@ -148,16 +154,8 @@
       aria-label={`${sourceNames[source]} connection`}
     >
       <div class="source-panel-top">
-        <span class="store-icon large" data-source={source}
-          >{source === "gog"
-            ? "gog"
-            : source === "amazon"
-              ? "a"
-              : source === "steam"
-                ? "S"
-                : source === "itch"
-                  ? "i"
-                  : "E"}</span
+        <span class="store-icon large" data-source={source} aria-hidden="true"
+          ><img src={sourceIcons[source]} alt="" /></span
         >
         <div>
           <h2>{sourceNames[source]}</h2>
@@ -166,34 +164,6 @@
               .length} games in library</span
           >
         </div>
-      </div>
-      <p>
-        {source === "steam"
-          ? "Connect your SteamID64 and Web API key to import owned games, including those you haven’t installed."
-          : source === "itch"
-            ? "Connect your itch.io API key to import purchases, claims, and games from owned bundles."
-            : `Sign in to ${sourceNames[source]} in your browser to import your complete owned collection.`}
-      </p>
-      {#if source === "steam"}<p class="field-hint">
-          Steam play history refreshes every 15 minutes when background sync is
-          enabled. You can refresh it manually at any time. SlopLauncher keeps
-          its own launch history.
-        </p>
-        {#if steamHistoryMessage}<p class="field-hint" role="status">
-            {steamHistoryMessage}
-          </p>{/if}{/if}
-      <ConnectionHelp service={source} expanded={!!only} />
-      {#if account.connected}
-        <div class="account-summary">
-          <strong>{account.displayName ?? sourceNames[source]}</strong><span
-            >{account.ownedCount ?? "—"} owned · {time(account.lastSync)}</span
-          >
-        </div>
-      {/if}
-      {#if account.error}<p class="form-error account-error" role="status">
-          {account.error}
-        </p>{/if}
-      <div class="source-panel-footer">
         <span class="connection-state"
           ><span
             class="status-dot"
@@ -208,6 +178,35 @@
                   ? "Connected"
                   : "Not connected"}</span
         >
+      </div>
+      <p>
+        {account.connected
+          ? `Keep your ${sourceNames[source]} owned games up to date.`
+          : source === "steam"
+          ? "Connect your SteamID64 and Web API key to import owned games, including those you haven’t installed."
+          : source === "itch"
+            ? "Connect your itch.io API key to import purchases, claims, and games from owned bundles."
+            : `Sign in to ${sourceNames[source]} in your browser to import your complete owned collection.`}
+      </p>
+      {#if source === "steam"}<p class="field-hint">
+          Steam history refreshes every 15 minutes when background sync is on.
+          Local launch history is kept separately.
+        </p>
+        {#if steamHistoryMessage}<p class="field-hint" role="status">
+            {steamHistoryMessage}
+          </p>{/if}{/if}
+      <ConnectionHelp service={source} expanded={!!only} compact={!only} />
+      {#if account.connected}
+        <div class="account-summary">
+          <strong>{account.displayName ?? sourceNames[source]}</strong><span
+            >{account.ownedCount ?? "—"} owned · {time(account.lastSync)}</span
+          >
+        </div>
+      {/if}
+      {#if account.error}<p class="form-error account-error" role="status">
+          {account.error}
+        </p>{/if}
+      <div class="source-panel-footer">
         <div class="account-actions">
           {#if account.connected}
             {#if source === "steam" && onSteamHistory}<button
@@ -250,12 +249,14 @@
       </div>
       <SourceFolders
         {source}
+        compact={!only}
         paths={folders[source] ?? []}
         disabled={disabled || !onFoldersChange}
         onchange={onFoldersChange}
       />
     </section>
   {/each}
+  {#if !only && children}{@render children()}{/if}
 </div>
 
 <dialog

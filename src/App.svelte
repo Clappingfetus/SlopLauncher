@@ -145,19 +145,7 @@
   } from "./lib/library";
   import { demoGames } from "./lib/demo";
   import * as api from "./lib/backend";
-  import steamIcon from "./assets/source-icons/steam.ico";
-  import epicIcon from "./assets/source-icons/epic.png";
-  import amazonIcon from "./assets/source-icons/amazon.png";
-  import gogIcon from "./assets/source-icons/gog.ico";
-  import itchIcon from "./assets/source-icons/itch.svg";
-
-  const sourceIcons: Partial<Record<Source, string>> = {
-    steam: steamIcon,
-    epic: epicIcon,
-    amazon: amazonIcon,
-    gog: gogIcon,
-    itch: itchIcon,
-  };
+  import { sourceIcons } from "./lib/source-icons";
 
   let homeLibraryWidth = $state(900);
   let games = $state.raw<Game[]>([]),
@@ -2460,16 +2448,19 @@
       />
     {:else if page === "sources"}
       <main class="sources-page">
-        <div class="page-eyebrow">CONNECTIONS</div>
-        <h1>Sources</h1>
-        <button class="secondary-button" onclick={showSetup}
-          >Setup wizard</button
-        >
-        <p class="page-description">
-          Connect accounts for your full owned libraries. Add folders below to
-          find installed copies across drives. Manual and emulated games use Add
-          game.
-        </p>
+        <div class="sources-heading">
+          <div>
+            <div class="page-eyebrow">CONNECTIONS</div>
+            <h1>Sources</h1>
+            <p class="page-description">
+              Connect your accounts to bring your games together. Add library
+              folders to find games installed on other drives.
+            </p>
+          </div>
+          <button class="secondary-button" onclick={showSetup}
+            ><Sparkles size={15} />Setup wizard</button
+          >
+        </div>
         {#if demoMode}<div class="inline-notice">
             <FlaskConical size={17} /><span>You’re viewing sample games.</span
             ><button onclick={toggleDemo}
@@ -2487,26 +2478,27 @@
           steamId={settings.steamId}
           folders={settings.libraryFolders ?? {}}
           onFoldersChange={changeFolders}
-        />
-        <section class="discovery-panel">
-          <HardDrive size={22} />
-          <div>
-            <h2>Already installed?</h2>
-            <p>
-              Read local Steam, Epic, Amazon, GOG, and itch.io records without
-              changing your game files.
-            </p>
-          </div>
-          <button
-            class="secondary-button"
-            disabled={!!busy || demoMode || !api.desktop || !ready}
-            onclick={scan}
-            >{#if busy === "scan"}<LoaderCircle
-                size={15}
-                class="spin"
-              />{:else}<RefreshCw size={15} />{/if}Scan installed games</button
-          >
-        </section>
+        >
+          <section class="discovery-panel">
+            <HardDrive size={22} />
+            <div>
+              <h2>Already installed?</h2>
+              <p>
+                Read local Steam, Epic, Amazon, GOG, and itch.io records without
+                changing your game files.
+              </p>
+            </div>
+            <button
+              class="secondary-button"
+              disabled={!!busy || demoMode || !api.desktop || !ready}
+              onclick={scan}
+              >{#if busy === "scan"}<LoaderCircle
+                  size={15}
+                  class="spin"
+                />{:else}<RefreshCw size={15} />{/if}Scan installed games</button
+            >
+          </section>
+        </SourceConnections>
         {#if scanMessages.length}<details class="scan-details">
             <summary>Last import details</summary
             >{#each scanMessages as message}<p>{message}</p>{/each}

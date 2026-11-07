@@ -101,7 +101,7 @@ export const setupServices = [
   {
     id: "emulators",
     name: "Emulators",
-    purpose: "Launch ROMs through your installed emulators",
+    purpose: "Experimental alpha · Launch ROMs through your installed emulators",
     steps: [
       "Install and configure your emulator, then choose Add profile below.",
       "Select the console, emulator and its executable file. For RetroArch, also choose an installed core DLL for that console.",

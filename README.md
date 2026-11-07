@@ -39,7 +39,7 @@ Underneath the vibes are actual tests, a Rust backend, and an ongoing campaign a
 | Full owned libraries from five PC stores | Manual Collections and rule-based live Collections |
 | Multiple installation folders per source | Smart Collections combining tags, size, dates, playtime, and ratings |
 | Store versions together, with a saved preferred copy | Favorites and hidden status shared across matching duplicates |
-| Manual games and reusable emulator profiles | HowLongToBeat **Main + Extras** sorting |
+| Manual games and experimental emulator profiles | HowLongToBeat **Main + Extras** sorting |
 | Game details, artwork controls, and contextual actions | Consensus ratings, score ranges, and automatic rating groups |
 | Compact covers, themes, and keyboard search | A dedicated Hidden Games view with duplicate grouping |
 
@@ -49,11 +49,11 @@ Underneath the vibes are actual tests, a Rust backend, and an ongoing campaign a
 
 Connect accounts for owned libraries, scan supported local installations, or add games manually. Install and launch actions use available store-client handoffs; this is not a replacement download engine. Store clients may still be required. Unofficial store protocols can change.
 
-Emulated games use configurable profiles for RetroArch and other emulators, including PlayStation, Switch, GameCube, and Wii U systems. Supply your own emulator and game files; platform support in the launcher does not guarantee compatibility in an emulator.
+**Emulation is an experimental alpha feature.** Emulated games use configurable profiles for RetroArch and other emulators, including PlayStation, Switch, GameCube, and Wii U systems. Supply your own emulator and game files; platform support in the launcher does not guarantee compatibility in an emulator.
 
 ### Details worth opening
 
-- **Metadata & artwork:** optional IGDB and SteamGridDB integrations. **ScreenScraper integration is planned but not implemented yet.** Native store covers take priority; SteamGridDB fills gaps by default for PC games. Choose alternate covers or backgrounds per game.
+- **Metadata & artwork:** optional IGDB and SteamGridDB integrations. Native store covers take priority; SteamGridDB fills gaps by default for PC games. Choose alternate covers or backgrounds per game. The first scan of a large library can take a while. Later launches reuse saved details and cached artwork for much faster startup.
 - **Useful links:** PCGamingWiki, HowLongToBeat, relevant store/community pages, and verified Nexus Mods entries live in game details.
 - **Ratings:** Steam, GOG, Metacritic, and itch.io user ratings alongside OpenCritic critic scores, when available. The consensus weights the user category **60%** and critics **40%**; when only one category exists, it supplies the score. Sorting uses the precise score; stars display in half-star increments.
 - **Achievements:** Steam achievement progress and explicitly linked RetroAchievements profiles. Your emulator earns RetroAchievements; SlopLauncher displays progress.

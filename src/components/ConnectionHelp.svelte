@@ -1,12 +1,15 @@
 <script lang="ts">
   import { setupServices, type SetupId } from "../lib/setup";
-  let { service, expanded = false }: { service: SetupId; expanded?: boolean } =
-    $props();
+  let {
+    service,
+    expanded = false,
+    compact = false,
+  }: { service: SetupId; expanded?: boolean; compact?: boolean } = $props();
   const helpId = $props.id();
   let help = $derived(setupServices.find((s) => s.id === service)!);
 </script>
 
-<details class="connection-help" open={expanded}>
+<details class="connection-help" class:compact open={expanded}>
   <summary title={help.tip} aria-describedby={helpId}
     >How to connect {help.name}</summary
   >
@@ -24,6 +27,12 @@
     padding: 11px 13px;
     font-size: 12px;
     line-height: 1.65;
+  }
+  .connection-help.compact {
+    margin: 8px 0;
+    padding: 7px 10px;
+    line-height: 1.45;
+    font-size: 11px;
   }
   summary {
     cursor: pointer;
