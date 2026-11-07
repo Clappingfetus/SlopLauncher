@@ -7,7 +7,6 @@
   <img alt="100% vibe coded" src="https://img.shields.io/badge/vibe_coded-100%25-bed9c5?style=flat-square&amp;labelColor=202a24">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-bed9c5?style=flat-square&amp;labelColor=202a24"></a>
   <img alt="Platform: Windows" src="https://img.shields.io/badge/Windows-desktop-202a24?style=flat-square&amp;labelColor=101613">
-  <img alt="Status: early development" src="https://img.shields.io/badge/status-early_development-bed9c5?style=flat-square&amp;labelColor=202a24">
   <img alt="Built with Tauri, Rust and Svelte" src="https://img.shields.io/badge/Tauri_2-Rust_%2B_Svelte_5-bed9c5?style=flat-square&amp;labelColor=202a24">
 </p>
 <p align="center">
@@ -115,19 +114,14 @@ Your library lives locally in `%APPDATA%/com.sloplauncher.desktop`. Credentials 
 
 See [security and publication boundaries](SECURITY.md). Do not attach database files, tokens, or unredacted logs to issues.
 
-## Project status
+## Recent changes
 
-Current source: **0.9.60**. Smart Collections now has a dedicated action next to Filters. Start with an empty collection, combine ALL/ANY rules, preview matches, and save directly to the sidebar. Collections update with new games and metadata, can overlap, and can be edited later. Older saved smart rules remain available to reuse. Full release dates are retained from stores when available, with platform-specific IGDB dates as a fallback. Recently Released and release sorting use the full date, and details show the calendar day. Year-only dates stay year-only. Existing games with missing dates can be filled using the Metadata refresh button; this does not trigger a new startup scan. Cover paths, resolved fallbacks, and failed-download retry deadlines now persist in SQLite. Restarts restore the cover index directly; new and invalidated entries are prepared as needed.
-
-Metadata gets one automatic lookup pass for newly discovered or rematched games. Existing libraries stay quiet on restart. Use the circular refresh button beside Metadata in the bottom bar to check games with gaps manually, including when automatic lookup is disabled. Startup warms the first screen from cached thumbnails before showing cards; remaining cached paths load in bounded batches without waiting for network downloads.
-
-Steam activity imports last-played dates, lifetime hours, and two-week playtime using your connected account. SlopLauncher keeps separate local launch dates and counts; Recently Played can show either history or both. Automatic history refresh runs every 15 minutes while background sync is enabled, with a manual refresh in Sources. Steam game-details privacy can limit the data returned. Local counts record successful launch requests, not measured session durations.
-
-Recent work includes consensus rating groups, cross-store personal flags, Amazon portrait artwork handling, and duplicate grouping in Hidden Games.
-
-Next priorities include testing on clean Windows installations, more robust store integrations, and signed distribution. Performance is a design priority, not a hardware-independent benchmark claim.
-
-Bug reports are welcome: include the app version, Windows version, affected source, and steps to reproduce. [Contribution notes →](CONTRIBUTING.md)
+- Resize the sidebar by dragging its edge, and fit more collections into the available space.
+- Enjoy a slimmer, less distracting activity bar with a quick way to refresh missing game details.
+- Recognize your connected game stores more easily with their familiar icons.
+- Check Settings to see which games are missing details or have covers that could not be saved.
+- Find your games and their covers more quickly when the app starts.
+- Create Smart Collections that automatically gather games based on rules you choose.
 
 ---
 
