@@ -2448,61 +2448,63 @@
       />
     {:else if page === "sources"}
       <main class="sources-page">
-        <div class="sources-heading">
-          <div>
-            <div class="page-eyebrow">CONNECTIONS</div>
-            <h1>Sources</h1>
-            <p class="page-description">
-              Connect your accounts to bring your games together. Add library
-              folders to find games installed on other drives.
-            </p>
-          </div>
-          <button class="secondary-button" onclick={showSetup}
-            ><Sparkles size={15} />Setup wizard</button
-          >
-        </div>
-        {#if demoMode}<div class="inline-notice">
-            <FlaskConical size={17} /><span>You’re viewing sample games.</span
-            ><button onclick={toggleDemo}
-              >Use my library <ArrowUpRight size={14} /></button
-            >
-          </div>{/if}
-        <SourceConnections
-          {games}
-          accounts={accountStates}
-          manager={accountManager}
-          onSteamHistory={() => void refreshSteamHistory(true)}
-          steamHistoryBusy={historyRefreshing}
-          steamHistoryMessage={historyMessage}
-          disabled={demoMode || !!busy || !ready}
-          steamId={settings.steamId}
-          folders={settings.libraryFolders ?? {}}
-          onFoldersChange={changeFolders}
-        >
-          <section class="discovery-panel">
-            <HardDrive size={22} />
+        <div class="sources-content">
+          <div class="sources-heading">
             <div>
-              <h2>Already installed?</h2>
-              <p>
-                Read local Steam, Epic, Amazon, GOG, and itch.io records without
-                changing your game files.
+              <div class="page-eyebrow">CONNECTIONS</div>
+              <h1>Sources</h1>
+              <p class="page-description">
+                Connect your accounts to bring your games together. Add library
+                folders to find games installed on other drives.
               </p>
             </div>
-            <button
-              class="secondary-button"
-              disabled={!!busy || demoMode || !api.desktop || !ready}
-              onclick={scan}
-              >{#if busy === "scan"}<LoaderCircle
-                  size={15}
-                  class="spin"
-                />{:else}<RefreshCw size={15} />{/if}Scan installed games</button
+            <button class="secondary-button" onclick={showSetup}
+              ><Sparkles size={15} />Setup wizard</button
             >
-          </section>
-        </SourceConnections>
-        {#if scanMessages.length}<details class="scan-details">
-            <summary>Last import details</summary
-            >{#each scanMessages as message}<p>{message}</p>{/each}
-          </details>{/if}
+          </div>
+          {#if demoMode}<div class="inline-notice">
+              <FlaskConical size={17} /><span>You’re viewing sample games.</span
+              ><button onclick={toggleDemo}
+                >Use my library <ArrowUpRight size={14} /></button
+              >
+            </div>{/if}
+          <SourceConnections
+            {games}
+            accounts={accountStates}
+            manager={accountManager}
+            onSteamHistory={() => void refreshSteamHistory(true)}
+            steamHistoryBusy={historyRefreshing}
+            steamHistoryMessage={historyMessage}
+            disabled={demoMode || !!busy || !ready}
+            steamId={settings.steamId}
+            folders={settings.libraryFolders ?? {}}
+            onFoldersChange={changeFolders}
+          >
+            <section class="discovery-panel">
+              <HardDrive size={22} />
+              <div>
+                <h2>Already installed?</h2>
+                <p>
+                  Read local Steam, Epic, Amazon, GOG, and itch.io records
+                  without changing your game files.
+                </p>
+              </div>
+              <button
+                class="secondary-button"
+                disabled={!!busy || demoMode || !api.desktop || !ready}
+                onclick={scan}
+                >{#if busy === "scan"}<LoaderCircle
+                    size={15}
+                    class="spin"
+                  />{:else}<RefreshCw size={15} />{/if}Scan installed games</button
+              >
+            </section>
+          </SourceConnections>
+          {#if scanMessages.length}<details class="scan-details">
+              <summary>Last import details</summary
+              >{#each scanMessages as message}<p>{message}</p>{/each}
+            </details>{/if}
+        </div>
       </main>
     {:else if page === "settings"}
       <main class="settings-page" aria-labelledby="settings-page-title">

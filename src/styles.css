@@ -1139,9 +1139,15 @@ textarea::placeholder {
   margin-top: 15px;
 }
 .sources-page {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 36px;
   scrollbar-width: thin;
+}
+.sources-content {
+  max-width: 1300px;
+  margin-inline: auto;
 }
 .sources-page h1 {
   font-size: 30px;
