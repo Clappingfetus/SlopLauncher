@@ -146,6 +146,7 @@
   import { demoGames } from "./lib/demo";
   import * as api from "./lib/backend";
   import { sourceIcons } from "./lib/source-icons";
+  import { countGamesBySource } from "./lib/source-counts";
 
   let homeLibraryWidth = $state(900);
   let games = $state.raw<Game[]>([]),
@@ -280,6 +281,7 @@
   let browsableGames = $derived(
     settings.showHiddenGames ? games : games.filter((g) => !g.hidden),
   );
+  let sourceCounts = $derived(countGamesBySource(browsableGames));
   let artworkRequests = $state<string[]>([]);
   let artworkGame = $derived(games.find((g) => g.id === selectedId));
   let providers = $state<ProviderStatus>({
@@ -2340,9 +2342,7 @@
                   alt=""
                 />{:else if source === "emulated"}◈{:else}+{/if}</span
             ><span>{sourceNames[source]}</span><span class="nav-count"
-              >{browsableGames.filter((g) =>
-                g.copies.some((c) => c.source === source),
-              ).length || ""}</span
+              >{sourceCounts.get(source) || ""}</span
             ></button
           >{/each}
       </nav>
@@ -3186,7 +3186,7 @@
                 : isCollectionFilter(filter)
                   ? "A collection from across your library."
                   : filter === "all"
-                    ? `${installedCount} installed · ${sources.filter((s) => browsableGames.some((g) => g.copies.some((c) => c.source === s))).length} sources`
+                    ? `${installedCount} installed · ${sources.filter((s) => sourceCounts.has(s)).length} sources`
                     : filter === "favorites"
                       ? "The ones you keep coming back to."
                       : filter === "recent"

@@ -19,6 +19,7 @@
   import ConnectionHelp from "./ConnectionHelp.svelte";
   import SourceFolders from "./SourceFolders.svelte";
   import { sourceIcons } from "../lib/source-icons";
+  import { countGamesBySource } from "../lib/source-counts";
   import type { LibraryFolders } from "../lib/types";
   let {
     games,
@@ -56,6 +57,7 @@
     steam = $state(""),
     dialog: HTMLDialogElement;
   let connection = $derived(accounts.find((a) => a.source === selected));
+  let sourceCounts = $derived(countGamesBySource(games));
   let working = $derived(
     connection &&
       ["opening", "connecting", "syncing", "disconnecting"].includes(
@@ -159,10 +161,7 @@
         >
         <div>
           <h2>{sourceNames[source]}</h2>
-          <span
-            >{games.filter((g) => g.copies.some((c) => c.source === source))
-              .length} games in library</span
-          >
+          <span>{sourceCounts.get(source) ?? 0} games in library</span>
         </div>
         <span class="connection-state"
           ><span
@@ -183,10 +182,10 @@
         {account.connected
           ? `Keep your ${sourceNames[source]} owned games up to date.`
           : source === "steam"
-          ? "Connect your SteamID64 and Web API key to import owned games, including those you haven’t installed."
-          : source === "itch"
-            ? "Connect your itch.io API key to import purchases, claims, and games from owned bundles."
-            : `Sign in to ${sourceNames[source]} in your browser to import your complete owned collection.`}
+            ? "Connect your SteamID64 and Web API key to import owned games, including those you haven’t installed."
+            : source === "itch"
+              ? "Connect your itch.io API key to import purchases, claims, and games from owned bundles."
+              : `Sign in to ${sourceNames[source]} in your browser to import your complete owned collection.`}
       </p>
       {#if source === "steam"}<p class="field-hint">
           Steam history refreshes every 15 minutes when background sync is on.

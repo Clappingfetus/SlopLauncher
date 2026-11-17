@@ -409,3 +409,100 @@ it("keeps failed covers settled while retrying and restores overdue retries with
   expect(c.stats()).toMatchObject({ prepared: 2, retrying: 0, pending: 0 });
   expect(options.lookup).not.toHaveBeenCalled();
 });
+
+it("keeps a fresh foreground result when an older index record arrives", async () => {
+  let finish!: (rows: [string, string][]) => void;
+  const catalog = new ArtworkCatalog({
+    lookup: () => new Promise((resolve) => (finish = resolve)),
+    prepare: async (url) => url,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["cover"]);
+  const pending = catalog.prime(["cover"]);
+  catalog.remember("cover", "fresh-path");
+  catalog.restore([{ url: "cover", retryAt: 9999 }]);
+  finish([["cover", "old-path"]]);
+  await pending;
+  expect(catalog.peek("cover")).toBe("fresh-path");
+  expect(catalog.stats()).toMatchObject({
+    prepared: 1,
+    retrying: 0,
+    pending: 0,
+  });
+});
+
+it("discards an old lookup when a cover is removed and added again", async () => {
+  let finish!: (rows: [string, string][]) => void;
+  const catalog = new ArtworkCatalog({
+    lookup: () => new Promise((resolve) => (finish = resolve)),
+    prepare: async (url) => url,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["cover"]);
+  const pending = catalog.prime(["cover"]);
+  catalog.reconcile([]);
+  catalog.reconcile(["cover"]);
+  finish([["cover", "obsolete-path"]]);
+  await pending;
+  expect(catalog.peek("cover")).toBeUndefined();
+  expect(catalog.stats()).toMatchObject({ prepared: 0, pending: 1 });
+});
+
+it("discards a download started before a cover was removed and rediscovered", async () => {
+  let finish!: (path: string) => void;
+  const prepare = vi
+    .fn()
+    .mockImplementationOnce(
+      () => new Promise<string>((resolve) => (finish = resolve)),
+    )
+    .mockResolvedValue("new-path");
+  const catalog = new ArtworkCatalog({
+    lookup: async () => [],
+    prepare,
+    foregroundBusy: () => false,
+    changed: () => {},
+  });
+  catalog.reconcile(["cover"]);
+  await catalog.step();
+  const old = catalog.step();
+  catalog.reconcile([]);
+  catalog.reconcile(["cover"]);
+  finish("obsolete-path");
+  await old;
+  expect(catalog.peek("cover")).toBeUndefined();
+  await catalog.step();
+  await catalog.step();
+  expect(catalog.peek("cover")).toBe("new-path");
+});
+
+it("stays idle for a prepared large library while still retrying due covers and finding additions", async () => {
+  let now = 1;
+  const busy = vi.fn(() => false);
+  const prepare = vi.fn(async (url: string) => `disk:${url}`);
+  const catalog = new ArtworkCatalog({
+    lookup: async () => [],
+    prepare,
+    foregroundBusy: busy,
+    changed: () => {},
+    now: () => now,
+  });
+  const urls = Array.from({ length: 6000 }, (_, i) => `cover-${i}`);
+  catalog.reconcile(urls);
+  catalog.restore(
+    urls.map((url, i) =>
+      i === 0 ? { url, retryAt: 100 } : { url, path: `disk:${url}` },
+    ),
+  );
+  for (let i = 0; i < 10; i++) await catalog.step();
+  expect(busy).not.toHaveBeenCalled();
+  expect(prepare).not.toHaveBeenCalled();
+  now = 100;
+  await catalog.step();
+  expect(catalog.peek("cover-0")).toBe("disk:cover-0");
+  catalog.reconcile([...urls, "late"]);
+  await catalog.step();
+  await catalog.step();
+  expect(catalog.peek("late")).toBe("disk:late");
+});
