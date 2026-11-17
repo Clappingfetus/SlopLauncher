@@ -895,6 +895,7 @@ textarea::placeholder {
   display: block;
   padding: 0;
   overflow: hidden;
+  cursor: default;
 }
 .cover-wrap img {
   width: 100%;
@@ -2749,12 +2750,6 @@ dialog.artwork-dialog {
 @keyframes artwork-reveal { from { opacity: 0; } to { opacity: 1; } }
 
 /* Drag affordances use outlines so sidebar rows do not shift during a gesture. */
-.cover-button[draggable="true"] {
-  cursor: grab;
-}
-.cover-button[draggable="true"]:active {
-  cursor: grabbing;
-}
 .cover-button img {
   pointer-events: none;
   -webkit-user-drag: none;
