@@ -10,16 +10,19 @@ function collectTags(
   limit: number,
 ): string[] {
   const labels = new Map<string, string>();
+  const seenRaw = new Set<string>();
   for (const group of groups) {
     for (const raw of group ?? []) {
-      if (typeof raw !== "string") continue;
+      if (typeof raw !== "string" || seenRaw.has(raw)) continue;
+      seenRaw.add(raw);
       const label = raw
         .normalize("NFKC")
         .replace(/[\u0000-\u001f\u007f]/g, " ")
         .trim()
         .replace(/\s+/g, " ");
       if (!label || label.length > 80) continue;
-      if (!labels.has(tagKey(label))) labels.set(tagKey(label), label);
+      const key = label.toLocaleLowerCase();
+      if (!labels.has(key)) labels.set(key, label);
       if (labels.size >= limit) break;
     }
     if (labels.size >= limit) break;

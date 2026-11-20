@@ -118,15 +118,20 @@
   .activity-card dl > div {
     display: flex;
     justify-content: space-between;
-    gap: 16px;
+    align-items: baseline;
+    gap: 12px;
     padding: 5px 0;
   }
   .activity-card dt {
     color: var(--muted);
+    min-width: 0;
   }
   .activity-card dd {
     margin: 0;
     text-align: right;
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
   }
   .activity-card p {
     font-size: 10px;

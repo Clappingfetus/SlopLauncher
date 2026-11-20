@@ -3,6 +3,7 @@
   import { Search, Trash2, Folder } from "@lucide/svelte";
   import type { Game, GameCollection } from "../lib/types";
   import { collectionMembers } from "../lib/collections";
+  import { searchIndex, searchText } from "../lib/search-index";
   import { sourceNames } from "../lib/types";
   let {
     initial,
@@ -34,18 +35,18 @@
     error = $state(""),
     confirmDelete = $state(false);
   let effectiveMembers = $derived(live ? automaticMembers : members);
-  let matches = $derived(
-    games
-      .filter(
-        (g) =>
-          (!selectedOnly || effectiveMembers.has(g.id)) &&
-          g.title
-            .normalize("NFKC")
-            .toLowerCase()
-            .includes(query.normalize("NFKC").trim().toLowerCase()),
-      )
-      .sort((a, b) => a.title.localeCompare(b.title)),
+  let sortedGames = $derived(
+    [...games].sort((a, b) => a.title.localeCompare(b.title)),
   );
+  let matches = $derived.by(() => {
+    const words = searchText(query).trim().split(/\s+/).filter(Boolean);
+    return sortedGames.filter((g) => {
+      if (selectedOnly && !effectiveMembers.has(g.id)) return false;
+      if (!words.length) return true;
+      const text = searchIndex(g).text;
+      return words.every((w) => text.includes(w));
+    });
+  });
   let count = $derived(games.filter((g) => effectiveMembers.has(g.id)).length);
   function toggle(id: string, checked: boolean) {
     const next = new Set(members);

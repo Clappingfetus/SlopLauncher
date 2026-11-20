@@ -4,18 +4,24 @@ export function libraryCoverTargets(
 ) {
   const targets = new Map<string, string[]>();
   for (const game of games) {
+    const extra = game.artworkFallbacks?.cover;
+    if (!extra?.length) {
+      if (game.cover && !targets.has(game.cover)) targets.set(game.cover, []);
+      continue;
+    }
     const candidates = [
       ...new Set(
-        [game.cover, ...(game.artworkFallbacks?.cover ?? [])].filter(
-          (url): url is string => !!url,
-        ),
+        [game.cover, ...extra].filter((url): url is string => !!url),
       ),
     ];
     const [primary, ...fallbacks] = candidates;
-    if (primary)
-      targets.set(primary, [
-        ...new Set([...(targets.get(primary) ?? []), ...fallbacks]),
-      ]);
+    if (primary) {
+      const prior = targets.get(primary);
+      targets.set(
+        primary,
+        prior?.length ? [...new Set([...prior, ...fallbacks])] : fallbacks,
+      );
+    }
   }
   return targets;
 }
@@ -102,12 +108,14 @@ export class ArtworkCatalog {
   }
   reconcile(urls: string[], fallbacks = new Map<string, string[]>()) {
     const next = new Set(urls.filter(Boolean));
+    let mutated = next.size !== this.urls.size;
     for (const url of next) {
       const added = !this.urls.has(url);
       const changed = !sameCandidates(
         this.fallbacks.get(url),
         fallbacks.get(url),
       );
+      if (added || changed) mutated = true;
       if (added) this.unchecked.add(url);
       if (added || changed) this.versions.set(url, ++this.nextVersion);
       if (changed) {
@@ -121,6 +129,7 @@ export class ArtworkCatalog {
         if (this.urls.has(url)) this.record(url);
       }
     }
+    if (!mutated) return;
     this.fallbacks = new Map(fallbacks);
     for (const url of this.urls)
       if (!next.has(url)) {

@@ -219,11 +219,52 @@ function facts(game: Game, now: number, needed: Set<RuleField>): Facts {
     added: needed.has("added") ? time(game.addedAt) : undefined,
   };
 }
-function matches(f: Facts, c: SmartCondition, now: number): boolean {
+interface CompiledCondition {
+  c: SmartCondition;
+  tags?: string[];
+  numLow?: number;
+  numHigh?: number;
+  hasNumLow?: boolean;
+  hasNumHigh?: boolean;
+  dayLow?: number;
+  dayHigh?: number;
+}
+function compileCondition(c: SmartCondition): CompiledCondition {
+  if (c.field === "tags") {
+    return {
+      c,
+      tags:
+        c.op === "known" || c.op === "unknown"
+          ? undefined
+          : (c.value ?? "").split(",").map(tagKey).filter(Boolean),
+    };
+  }
+  const hasNumLow = !!c.value?.trim();
+  const numLow = hasNumLow ? Number(c.value) : NaN;
+  const hasNumHigh = !!c.upper?.trim();
+  const numHigh = hasNumHigh ? Number(c.upper) : NaN;
+  const needsDate =
+    (c.field === "release" || c.field === "played" || c.field === "added") &&
+    c.op !== "within" &&
+    c.op !== "older" &&
+    c.op !== "known" &&
+    c.op !== "unknown";
+  return {
+    c,
+    hasNumLow,
+    numLow,
+    hasNumHigh,
+    numHigh,
+    dayLow: needsDate ? calendarDay(c.value) : undefined,
+    dayHigh: needsDate ? calendarDay(c.upper) : undefined,
+  };
+}
+function matches(f: Facts, compiled: CompiledCondition, now: number): boolean {
+  const { c } = compiled;
   if (c.field === "tags") {
     if (c.op === "known") return f.tags.size > 0;
     if (c.op === "unknown") return !f.tags.size;
-    const tags = (c.value ?? "").split(",").map(tagKey).filter(Boolean);
+    const tags = compiled.tags ?? [];
     if (!tags.length) return false;
     return c.op === "hasAny"
       ? tags.some((t) => f.tags.has(t))
@@ -238,9 +279,9 @@ function matches(f: Facts, c: SmartCondition, now: number): boolean {
   if (c.op === "known") return value !== undefined;
   if (value === undefined) return false;
   if (typeof value === "number") {
-    const low = Number(c.value),
-      high = Number(c.upper);
-    if (!c.value?.trim() || !Number.isFinite(low)) return false;
+    const low = compiled.numLow!,
+      high = compiled.numHigh!;
+    if (!compiled.hasNumLow || !Number.isFinite(low)) return false;
     return c.op === "lt"
       ? value < low
       : c.op === "lte"
@@ -250,21 +291,21 @@ function matches(f: Facts, c: SmartCondition, now: number): boolean {
           : c.op === "gte"
             ? value >= low
             : c.op === "between" &&
-              !!c.upper?.trim() &&
+              !!compiled.hasNumHigh &&
               Number.isFinite(high) &&
               value >= low &&
               value <= high;
   }
   const [start, end] = value;
   if (c.op === "within" || c.op === "older") {
-    const days = Number(c.value);
-    if (!c.value?.trim() || !Number.isFinite(days) || days < 0) return false;
+    const days = compiled.numLow!;
+    if (!compiled.hasNumLow || !Number.isFinite(days) || days < 0) return false;
     return c.op === "within"
       ? start >= now - days * DAY
       : end < now - days * DAY;
   }
-  const low = calendarDay(c.value),
-    high = calendarDay(c.upper);
+  const low = compiled.dayLow,
+    high = compiled.dayHigh;
   if (low === undefined) return false;
   return c.op === "before"
     ? end < low
@@ -287,6 +328,13 @@ export function groupGames(
   const needed = new Set(
     rules.flatMap((g) => g.conditions.map((c) => c.field)),
   );
+  const compiledRules =
+    mode === "smart"
+      ? rules.map((g) => ({
+          group: g,
+          conditions: (g.conditions ?? []).map(compileCondition),
+        }))
+      : [];
   const add = (id: string, name: string, game: Game, index: number) => {
     let group = groups.get(id);
     if (!group) {
@@ -299,13 +347,13 @@ export function groupGames(
   for (const game of games) {
     if (mode === "smart") {
       const f = facts(game, now, needed);
-      const index = rules.findIndex(
-        (g) =>
-          g.conditions?.length &&
+      const index = compiledRules.findIndex(
+        ({ group: g, conditions }) =>
+          conditions.length &&
           (g.match === "all"
-            ? g.conditions.every((c) => matches(f, c, now))
+            ? conditions.every((c) => matches(f, c, now))
             : g.match === "any" &&
-              g.conditions.some((c) => matches(f, c, now))),
+              conditions.some((c) => matches(f, c, now))),
       );
       add(
         index < 0 ? "other" : `smart:${rules[index].id}`,

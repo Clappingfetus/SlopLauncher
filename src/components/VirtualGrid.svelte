@@ -12,6 +12,7 @@
     coverSize,
     compact = true,
     initialScroll = 0,
+    scrollReset = 0,
     onscroll,
     onopen,
     onfavorite,
@@ -30,6 +31,7 @@
     coverSize: number;
     compact?: boolean;
     initialScroll?: number;
+    scrollReset?: number;
     onscroll: (top: number) => void;
     onopen: (g: Game) => void;
     onfavorite: (g: Game) => void;
@@ -76,13 +78,17 @@
     );
   });
   $effect(() => () => clearArtworkWindow(artworkOwner));
+  let restoredInitial = false;
+  let lastReset = -1;
   $effect(() => {
     if (!viewport) return;
     void layout.height;
     void rowHeight;
     const measuredWidth = width,
       measuredHeight = height,
-      requested = initialScroll;
+      reset = scrollReset,
+      shouldRestore = !restoredInitial || reset !== lastReset,
+      requested = shouldRestore ? initialScroll : viewport.scrollTop;
     let live = true;
     // Resize bindings may update before the spacer's DOM style. Clamp only
     // after both actual measurements and the resulting layout have settled.
@@ -94,11 +100,16 @@
         measuredHeight !== viewport.clientHeight
       )
         return;
+      restoredInitial = true;
+      lastReset = reset;
       const maximum = Math.max(
         0,
         viewport.scrollHeight - viewport.clientHeight,
       );
-      viewport.scrollTop = Math.min(Math.max(0, requested), maximum);
+      const target = Math.min(Math.max(0, requested), maximum);
+      if (Math.abs(viewport.scrollTop - target) >= 1) {
+        viewport.scrollTop = target;
+      }
       top = viewport.scrollTop;
     });
     return () => {

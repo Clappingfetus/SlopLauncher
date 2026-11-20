@@ -71,6 +71,8 @@ pub fn save(db: &mut Connection, dir: &Path, entries: &[Record]) -> Result<(), S
         return Err("Cover index batch too large".into());
     }
     let tx = db.transaction().map_err(|_| "Cover index is busy")?;
+    let thumbs = dir.join("library-thumbnails");
+    let current_now = now();
     for entry in entries {
         let source = entry.source.as_deref().unwrap_or(&entry.url);
         if !allowed(&entry.url)
@@ -85,7 +87,7 @@ pub fn save(db: &mut Connection, dir: &Path, entries: &[Record]) -> Result<(), S
             .as_ref()
             .map(|path| {
                 let relative = Path::new(path)
-                    .strip_prefix(dir.join("library-thumbnails"))
+                    .strip_prefix(&thumbs)
                     .map_err(|_| "Invalid cover index path")?;
                 let name = relative.to_str().ok_or("Invalid cover index path")?;
                 if !filename(name) {
@@ -96,16 +98,19 @@ pub fn save(db: &mut Connection, dir: &Path, entries: &[Record]) -> Result<(), S
             .transpose()?;
         let retry = entry
             .retry_at
-            .filter(|t| *t > now())
-            .map(|t| t.min(now() + 86_400_000));
+            .filter(|t| *t > current_now)
+            .map(|t| t.min(current_now + 86_400_000));
         if file.is_none() && retry.is_none() {
-            tx.execute("DELETE FROM cover_catalog WHERE url=?1", [&entry.url])
+            tx.prepare_cached("DELETE FROM cover_catalog WHERE url=?1")
+                .map_err(|_| "Could not update cover index")?
+                .execute([&entry.url])
                 .map_err(|_| "Could not update cover index")?;
         } else {
-            tx.execute(
+            tx.prepare_cached(
                 "INSERT OR REPLACE INTO cover_catalog(url,source,file,retry_at)VALUES(?1,?2,?3,?4)",
-                params![entry.url, source, file, retry],
             )
+            .map_err(|_| "Could not save cover index")?
+            .execute(params![entry.url, source, file, retry])
             .map_err(|_| "Could not save cover index")?;
         }
     }

@@ -1,6 +1,7 @@
 import { it, expect } from "vitest";
 import {
   buildHomeShelves,
+  homeCollectionMembers,
   recentActivity,
   orderHomeShelves,
   moveHomeRow,
@@ -9,6 +10,18 @@ import { demoGames } from "./demo";
 import { identity } from "./enrichment-identity";
 import type { Game } from "./types";
 const now = Date.UTC(2026, 9, 24);
+it("fills overlapping shelves in library order from current games and memberships", () => {
+  const first = game("first"), second = game("second"), late = game("late");
+  const groups = [
+    { id: "both", name: "Both", gameIds: ["second", "first", "first", "late"] },
+    { id: "also", name: "Also", gameIds: ["second"] },
+  ];
+  expect(homeCollectionMembers([first, second], groups).get("both")).toEqual([first, second]);
+  const renamed = { ...second, title: "New title" };
+  const current = homeCollectionMembers([late, renamed], groups);
+  expect(current.get("both")).toEqual([late, renamed]);
+  expect(current.get("also")).toEqual([renamed]);
+});
 function game(
   id: string,
   played = 0,

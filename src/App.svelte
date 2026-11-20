@@ -43,6 +43,7 @@
     LoaderCircle,
     ExternalLink,
     Monitor,
+    ChevronLeft,
     ChevronRight,
     FolderOpen,
     CheckCheck,
@@ -51,7 +52,7 @@
   } from "@lucide/svelte";
   import Cover from "./components/Cover.svelte";
   import HomeScreen from "./components/HomeScreen.svelte";
-  import { buildHomeShelves, orderHomeShelves } from "./lib/home";
+  import { buildHomeShelves, homeCollectionMembers, orderHomeShelves } from "./lib/home";
   import VirtualGrid from "./components/VirtualGrid.svelte";
   import SmartCollectionEditor from "./components/SmartCollectionEditor.svelte";
   import { groupGames, groupOptions, validateGroups } from "./lib/grouping";
@@ -136,7 +137,8 @@
     type ArtworkChoice,
   } from "./lib/types";
   import {
-    filterGames,
+    matchGames,
+    sortGames,
     sortOptions,
     mergeDiscovered,
     mergeOwnedLibrary,
@@ -257,7 +259,8 @@
     addSteamId = $state(""),
     metadataId = $state(""),
     formError = $state(""),
-    screenshot = $state("");
+    screenshot = $state(""),
+    screenshotIndex = $state(0);
   let toastTimer: ReturnType<typeof setTimeout>;
   let metadataQuery = $state(""),
     metadataResults = $state<{ appId: number; title: string }[]>([]),
@@ -282,8 +285,9 @@
     settings.showHiddenGames ? games : games.filter((g) => !g.hidden),
   );
   let sourceCounts = $derived(countGamesBySource(browsableGames));
+  let gameIndex = $derived(new Map(games.map((g) => [g.id, g])));
   let artworkRequests = $state<string[]>([]);
-  let artworkGame = $derived(games.find((g) => g.id === selectedId));
+  let artworkGame = $derived(selectedId ? gameIndex.get(selectedId) : undefined);
   let providers = $state<ProviderStatus>({
     revision: 0,
     steamGridDbConfigured: false,
@@ -301,7 +305,6 @@
   const resolveVersions = createVersionResolver();
   const presentCached = createGamePresenter();
   const gapEnabled = createGapPolicy(presentCached);
-  let gameIndex = $derived(new Map(games.map((g) => [g.id, g])));
   const dirtyEnrichment = new Set<string>();
   const dirtyMetadataAttempts = new Set<string>();
   let lastEnrichmentSave = 0;
@@ -448,6 +451,8 @@
     },
   });
   let libraryScroll = $state(0),
+    libraryScrollReset = $state(0),
+    savedLibraryScroll = 0,
     saveStatus = $state<"saved" | "saving" | "error">("saved");
   let basePresentedGames = $derived(
     games.map((g) => presentCached(g, providers.revision)),
@@ -501,23 +506,21 @@
       preferredCopy: state.copyId,
     };
   });
+  let browsablePresented = $derived(
+    settings.showHiddenGames
+      ? presentedGames
+      : presentedGames.filter((g) => !g.hidden),
+  );
+  let collapsedBrowsable = $derived(versionsIndex.collapse(browsablePresented));
   let hiddenCount = $derived(
-    versionsIndex.collapse(presentedGames.filter((g) => g.hidden)).length,
+    versionsIndex.count(presentedGames.filter((g) => g.hidden)),
   );
-  let libraryCount = $derived(
-    versionsIndex.collapse(
-      presentedGames.filter((g) => settings.showHiddenGames || !g.hidden),
-    ).length,
-  );
+  let libraryCount = $derived(collapsedBrowsable.length);
   let favoriteCount = $derived(
-    versionsIndex.collapse(
-      presentedGames.filter(
-        (g) => (settings.showHiddenGames || !g.hidden) && g.favorite,
-      ),
-    ).length,
+    versionsIndex.count(browsablePresented.filter((g) => g.favorite)),
   );
   let selected = $derived.by(() => {
-    const game = games.find((g) => g.id === selectedId);
+    const game = selectedId ? gameIndex.get(selectedId) : undefined;
     return game
       ? settings.hideDuplicateGames
         ? versionsIndex.choose([
@@ -564,14 +567,14 @@
       ? new Map(
           resolvedCollections.map((c) => [
             c.id,
-            versionsIndex.collapse(
+            versionsIndex.count(
               [...new Set(c.gameIds)]
                 .map((id) => gameIndex.get(id))
                 .filter(
                   (g): g is Game =>
                     !!g && (!!settings.showHiddenGames || !g.hidden),
                 ),
-            ).length,
+            ),
           ]),
         )
       : collectionCounts(resolvedCollections, browsableGames),
@@ -587,7 +590,7 @@
             ?.games.map((g) => g.id) ?? [],
         )
       : null;
-    return filterGames(
+    return matchGames(
       members
         ? presentedGames.filter((g) => members.has(g.id))
         : presentedGames,
@@ -595,7 +598,6 @@
       query,
       installedOnly,
       tagFilter,
-      sort,
       resolvedCollections,
       !!settings.showHiddenGames,
       sourceFilter,
@@ -603,29 +605,19 @@
     );
   });
   let filtered = $derived(
-    settings.hideDuplicateGames
-      ? filterGames(
-          versionsIndex.collapse(matchingGames),
-          "all",
-          "",
-          false,
-          "",
-          sort,
-          [],
-          true,
-          "",
-          activitySource,
-        )
-      : matchingGames,
+    sortGames(
+      settings.hideDuplicateGames
+        ? versionsIndex.collapse(matchingGames)
+        : matchingGames,
+      sort,
+      activitySource,
+    ),
   );
   const homeScrolls = new Map<string, number>();
   let detailsOrigin = $state<"home" | "library">("home");
   let homeGames = $derived.by(() => {
-    const visible = presentedGames.filter(
-      (g) => settings.showHiddenGames || !g.hidden,
-    );
-    return versionsIndex.collapse(visible).map((g) => {
-      if (!settings.hideDuplicateGames) return g;
+    if (!settings.hideDuplicateGames) return collapsedBrowsable;
+    return collapsedBrowsable.map((g) => {
       const members = versionsIndex.members(g.id);
       return {
         ...g,
@@ -633,21 +625,14 @@
       };
     });
   });
-  let homeCollectionGames = $derived(
-    new Map(
-      resolvedCollections.map((c) => {
-        const ids = new Set(c.gameIds);
-        return [
-          c.id,
-          versionsIndex.collapse(
-            presentedGames.filter(
-              (g) => ids.has(g.id) && (settings.showHiddenGames || !g.hidden),
-            ),
-          ),
-        ];
-      }),
-    ),
-  );
+  let homeCollectionGames = $derived.by(() => {
+    const lists = homeCollectionMembers(browsablePresented, resolvedCollections);
+    if (settings.hideDuplicateGames) {
+      for (const [id, members] of lists)
+        lists.set(id, versionsIndex.collapse(members));
+    }
+    return lists;
+  });
   let homeShelves = $derived(
     orderHomeShelves(
       buildHomeShelves(
@@ -944,13 +929,7 @@
     smartCollectionDraft = undefined;
     openModal("grouping");
   }
-  let tags = $derived(
-    libraryTags(
-      settings.showHiddenGames
-        ? presentedGames
-        : presentedGames.filter((g) => !g.hidden),
-    ),
-  );
+  let tags = $derived(libraryTags(browsablePresented));
   let failedCovers = $derived.by(() => {
     void $artworkCatalogState;
     return api.failedArtwork();
@@ -979,13 +958,9 @@
                 : sourceNames[filter],
   );
   let installedCount = $derived(
-    versionsIndex.collapse(
-      presentedGames.filter(
-        (g) =>
-          (settings.showHiddenGames || !g.hidden) &&
-          g.copies.some((c) => c.installed),
-      ),
-    ).length,
+    versionsIndex.count(
+      browsablePresented.filter((g) => g.copies.some((c) => c.installed)),
+    ),
   );
 
   async function openResource(url: string) {
@@ -1465,7 +1440,7 @@
     if (!$draggedGameId) dropCollection = null;
   });
   function changeMembership(collectionId: string, included: boolean) {
-    if (demoMode || !selectedId || !games.some((g) => g.id === selectedId))
+    if (demoMode || !selectedId || !gameIndex.has(selectedId))
       return;
     settings.collections = setMembership(
       collections,
@@ -1526,7 +1501,7 @@
   }
   function popstate() {
     const id = window.history.state?.slopGame;
-    selectedId = games.some((g) => g.id === id) ? id : null;
+    selectedId = typeof id === "string" && gameIndex.has(id) ? id : null;
     if (selectedId) page = detailsOrigin;
   }
   function openModal(value: typeof modal) {
@@ -1546,7 +1521,7 @@
     slot: "cover" | "hero",
     asset: (ArtworkAsset & { source: ArtworkChoice["source"] }) | null,
   ) {
-    const current = games.find((g) => g.id === game.id);
+    const current = gameIndex.get(game.id);
     if (!current || artworkIdentity(current) !== artworkIdentity(game)) return;
     const artwork = { ...current.artwork };
     if (asset)
@@ -1667,10 +1642,15 @@
     void query;
     void installedOnly;
     void tagFilter;
+    void sourceFilter;
+    void activitySource;
+    void homeShelfFilter;
     void sort;
     void settings.libraryGrouping;
     void settings.smartGroups;
+    savedLibraryScroll = 0;
     libraryScroll = 0;
+    libraryScrollReset = untrack(() => libraryScrollReset) + 1;
   });
   $effect(() => {
     void enrichmentPolicy;
@@ -1702,16 +1682,50 @@
     if (api.desktop && ready && !demoMode)
       enrichmentQueue.scheduleReconcile(games, providers.revision, selectedId);
   }
+  function stepScreenshot(delta: number) {
+    const list = selected?.screenshots ?? [];
+    if (list.length < 2) return;
+    screenshotIndex = (screenshotIndex + delta + list.length) % list.length;
+    screenshot = list[screenshotIndex];
+  }
+  function focusLibrarySearch() {
+    if (modal) return;
+    if (page === "home") {
+      filter = "all";
+      homeShelfFilter = null;
+    }
+    page = "library";
+    selectedId = null;
+    window.history.replaceState({}, "");
+    tick().then(() => {
+      searchInput?.focus();
+      searchInput?.select();
+    });
+  }
   function keyboard(e: KeyboardEvent) {
-    if (
-      e.defaultPrevented ||
-      document.querySelector("dialog[open]") ||
-      libraryMutation
-    )
-      return;
+    if (e.defaultPrevented || libraryMutation) return;
+    if (modal === "screenshot") {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        stepScreenshot(-1);
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        stepScreenshot(1);
+        return;
+      }
+    }
+    if (document.querySelector("dialog[open]")) return;
     const editing =
       e.target instanceof Element &&
       !!e.target.closest("input, textarea, select, [contenteditable='true']");
+    if (e.key === "Escape" && e.target === searchInput) {
+      e.preventDefault();
+      if (query) query = "";
+      else searchInput?.blur();
+      return;
+    }
     if (
       !editing &&
       selectionMode &&
@@ -1730,15 +1744,30 @@
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
-      if (modal) return;
-      if (page === "home") {
-        filter = "all";
-        homeShelfFilter = null;
-      }
-      page = "library";
-      selectedId = null;
-      window.history.replaceState({}, "");
-      tick().then(() => searchInput?.focus());
+      focusLibrarySearch();
+      return;
+    }
+    if (
+      !editing &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      e.key === "/"
+    ) {
+      e.preventDefault();
+      focusLibrarySearch();
+      return;
+    }
+    if (
+      !editing &&
+      e.altKey &&
+      e.key === "ArrowLeft" &&
+      selectedId &&
+      !modal
+    ) {
+      e.preventDefault();
+      closeDetails();
+      return;
     }
     if (
       e.key === "Escape" &&
@@ -1816,6 +1845,7 @@
       notify("Folder removed from your list. Your games and files were kept.");
   }
   function openGame(g: Game) {
+    if (page === "library") libraryScroll = savedLibraryScroll;
     detailsOrigin = page === "home" ? "home" : "library";
     window.history.pushState({ slopGame: g.id }, "");
     selectedId = g.id;
@@ -1825,7 +1855,7 @@
     const epoch = libraryEpoch;
     try {
       const m = await api.steamMetadata(id);
-      const latest = games.find((current) => current.id === g.id);
+      const latest = gameIndex.get(g.id);
       if (
         epoch !== libraryEpoch ||
         demoMode ||
@@ -2054,7 +2084,7 @@
       input.profileId,
       input.gamePath,
     );
-    const current = games.find((g) => g.id === gameId);
+    const current = gameIndex.get(gameId);
     if (epoch !== libraryEpoch || demoMode || !current) return;
     updateGame(gameId, {
       title: input.title,
@@ -2417,6 +2447,12 @@
         >
       </div>
       <div class="topbar-actions">
+        {#if page !== "library" || selected}<button
+            class="icon-button"
+            aria-label="Search your games"
+            title="Search your games (Ctrl+K or /)"
+            onclick={focusLibrarySearch}><Search size={17} /></button
+          >{/if}
         <button
           class="icon-button"
           aria-label="Refresh installed games"
@@ -2538,6 +2574,10 @@
           games={presentedGames}
           failures={failedCovers}
           onrefresh={scanMissingMetadata}
+          onopen={(game) => {
+            page = "library";
+            openGame(game);
+          }}
           busy={enrichmentProgress.running + enrichmentProgress.queued > 0 ||
             demoMode ||
             !ready}
@@ -2625,7 +2665,8 @@
                   <strong>Automatically fill missing artwork & metadata</strong>
                   <p>
                     One automatic pass for newly discovered or rematched games.
-                    Use the refresh button beside Metadata below to retry gaps.
+                    Use Scan metadata in Metadata & cover status above to retry
+                    gaps.
                   </p>
                 </div>
                 <input
@@ -2781,10 +2822,18 @@
             </div>
             <div class="detail-identity">
               <div class="detail-tags">
-                {selected.genres.slice(0, 3).join("  ·  ")}{selected.year ||
-                selected.releasedAt !== undefined
-                  ? `  /  ${releaseLabel(selected)}`
-                  : ""}
+                {#each selected.genres.slice(0, 3) as genre, i}{#if i > 0}<span
+                      aria-hidden="true">·</span
+                    >{/if}<button
+                    class="detail-genre-link"
+                    onclick={() => {
+                      navigate("all");
+                      tagFilter = tagKey(genre);
+                      showFilters = true;
+                    }}>{genre}</button
+                  >{/each}{#if selected.year || selected.releasedAt !== undefined}{#if selected.genres.length}<span
+                      aria-hidden="true">/</span
+                    >{/if}<span>{releaseLabel(selected)}</span>{/if}
               </div>
               <h1>{selected.title}</h1>
               <p>
@@ -2916,7 +2965,8 @@
               <GameTags
                 gameId={selected.id}
                 tags={selected.tags ?? []}
-                customTags={games.find((g) => g.id === selectedId)?.tags ?? []}
+                customTags={(selectedId ? gameIndex.get(selectedId)?.tags : undefined) ?? []}
+                suggestions={tags}
                 onchange={(values) =>
                   updateGame(selected!.id, { tags: values })}
                 onfilter={(tag) => {
@@ -2942,6 +2992,7 @@
                     {#each selected.screenshots as image, i}<button
                         aria-label={`Open screenshot ${i + 1}`}
                         onclick={() => {
+                          screenshotIndex = i;
                           screenshot = image;
                           openModal("screenshot");
                         }}
@@ -3136,6 +3187,8 @@
         <div class="library-viewport" bind:clientWidth={homeLibraryWidth}></div>
       </div>
       <HomeScreen
+        onlibrary={() => navigate("all")}
+        onretry={() => void loadLibrary()}
         shelves={homeShelves}
         cardWidth={(() => {
           const gap = settings.comfortableLibrary ? 24 : 16;
@@ -3195,6 +3248,11 @@
                           ? "Use the eye on a cover to return a game to your library."
                           : `Your ${sourceNames[filter]} collection`}
             </p>
+            {#if homeShelfFilter}<button
+                class="text-button collection-edit-button"
+                onclick={() => (homeShelfFilter = null)}
+                ><X size={13} />Show full library</button
+              >{/if}
             {#if activeCollection}<button
                 class="text-button collection-edit-button"
                 onclick={() => editCollection(activeCollection)}
@@ -3207,19 +3265,25 @@
               bind:value={query}
               placeholder="Search your games"
               aria-label="Search your games"
-            /><kbd>Ctrl K</kbd>{#if query}<button
+            />{#if query}<button
                 aria-label="Clear search"
-                onclick={() => (query = "")}><X size={14} /></button
-              >{/if}
+                title="Clear search (Esc)"
+                onclick={() => {
+                  query = "";
+                  searchInput?.focus();
+                }}><X size={14} /></button
+              >{:else}<kbd>Ctrl K</kbd>{/if}
           </div>
         </div>
         <div class="library-toolbar">
           <div class="filter-pills">
             <button
               class:chosen={!installedOnly}
+              aria-pressed={!installedOnly}
               onclick={() => (installedOnly = false)}>All games</button
             ><button
               class:chosen={installedOnly}
+              aria-pressed={installedOnly}
               onclick={() => (installedOnly = true)}
               ><span class="tiny-dot"></span>Installed</button
             ><button
@@ -3316,7 +3380,12 @@
                 step="10"
                 bind:value={settings.coverSize}
                 onchange={persistSettings}
-              /></label
+              /><span class="size-readout"
+                >{Math.round(
+                  settings.coverSize *
+                    (settings.comfortableLibrary ? 1 : 0.75),
+                )}px</span
+              ></label
             >{#if tagFilter || sourceFilter || activitySource !== "all"}<button
                 class="text-button"
                 onclick={() => {
@@ -3394,7 +3463,9 @@
         {:else if !ready}<div class="empty-state">
             <LoaderCircle size={28} class="spin" />
             <h2>Opening your library</h2>
-          </div>{:else if !filtered.length}<div class="empty-state">
+          </div>{:else if !filtered.length}
+            {@const canClear = !!(query || tagFilter || sourceFilter || installedOnly || activitySource !== "all")}
+            <div class="empty-state">
             <span class="empty-icon"
               ><Gamepad2 size={31} strokeWidth={1.3} /></span
             >
@@ -3406,6 +3477,8 @@
                 : activeCollection &&
                     !totalFolderCounts.get(activeCollection.id)
                   ? "Your collection is ready"
+                  : filter === "favorites" && !favoriteCount
+                    ? "No favorites yet"
                   : games.length
                     ? "No matching games"
                     : "Your library is ready"}
@@ -3420,6 +3493,10 @@
                   ? activeCollection.rule
                     ? "New matching games will appear here automatically. Edit this collection to save its current matches as a snapshot."
                     : "Choose games from your library to add to this collection."
+                  : filter === "favorites" && !favoriteCount
+                    ? "Select the heart on a game in your library to find it here."
+                  : games.length && !canClear && filter !== "all"
+                    ? "Browse the full library to find another game."
                   : games.length
                     ? hiddenCount && !settings.showHiddenGames
                       ? "Try another search or enable Show hidden games in Settings."
@@ -3438,7 +3515,7 @@
                     ? "Edit matching collection"
                     : "Add games to collection"}</button
                 >
-              {:else if games.length}<button
+              {:else if games.length && canClear && !(filter === "favorites" && !favoriteCount)}<button
                   class="secondary-button"
                   onclick={() => {
                     query = "";
@@ -3447,7 +3524,13 @@
                     activitySource = "all";
                     installedOnly = false;
                   }}>Clear filters</button
-                >{:else}<button
+                >{:else if games.length && (filter !== "all" || homeShelfFilter)}<button
+                  class="secondary-button"
+                  onclick={() => {
+                    installedOnly = false;
+                    navigate("all");
+                  }}>Browse full library</button
+                >{:else if !games.length}<button
                   class="primary-button"
                   onclick={scan}
                   disabled={!!busy || !api.desktop}
@@ -3496,8 +3579,10 @@
                   ? versionsIndex.versions(game.id).length
                   : game.copies.length}
               initialScroll={libraryScroll}
+              scrollReset={libraryScrollReset}
               onscroll={(value) => {
-                if (!selectedId && page === "library") libraryScroll = value;
+                if (!selectedId && page === "library")
+                  savedLibraryScroll = value;
               }}
             />{/key}{/if}
         <footer class="library-footer">
@@ -3614,7 +3699,10 @@
                             ? smartCollectionDraft
                               ? "Edit Smart Collection"
                               : "New Smart Collection"
-                            : "Screenshot"}
+                            : selected?.screenshots.length &&
+                                selected.screenshots.length > 1
+                              ? `Screenshot ${screenshotIndex + 1} of ${selected.screenshots.length}`
+                              : "Screenshot"}
       </h2>
       <button
         class="icon-button"
@@ -4020,11 +4108,23 @@
           >Remove entry</button
         >
       </div>
-    {:else if modal === "screenshot"}<img
-        class="full-screenshot"
-        src={screenshot}
-        alt="Game screenshot"
-      />{/if}
+    {:else if modal === "screenshot"}<div class="screenshot-viewer">
+        {#if (selected?.screenshots.length ?? 0) > 1}<button
+            class="screenshot-nav prev"
+            aria-label="Previous screenshot"
+            onclick={() => stepScreenshot(-1)}><ChevronLeft size={20} /></button
+          >{/if}<img
+          class="full-screenshot"
+          src={screenshot}
+          alt={selected
+            ? `${selected.title} screenshot ${screenshotIndex + 1}`
+            : "Game screenshot"}
+        />{#if (selected?.screenshots.length ?? 0) > 1}<button
+            class="screenshot-nav next"
+            aria-label="Next screenshot"
+            onclick={() => stepScreenshot(1)}><ChevronRight size={20} /></button
+          >{/if}
+      </div>{/if}
   {/if}
 </dialog>
 {#if toast}<div class:error={toastError} class="toast" role="status">

@@ -5,19 +5,26 @@
     gameId,
     tags,
     customTags = [],
+    suggestions = [],
     onchange,
     onfilter,
   }: {
     gameId: string;
     tags: string[];
     customTags?: string[];
+    suggestions?: string[];
     onchange: (tags: string[]) => void;
     onfilter: (tag: string) => void;
   } = $props();
+  const listId = $props.id();
   let draft = $state(""),
     error = $state(""),
     expanded = $state(false);
+  let tagKeys = $derived(new Set(tags.map(tagKey)));
   let customKeys = $derived(new Set(customTags.map(tagKey)));
+  let availableSuggestions = $derived(
+    suggestions.filter((t) => !tagKeys.has(tagKey(t))),
+  );
   let shown = $derived(expanded ? tags : tags.slice(0, 16));
   $effect(() => {
     void gameId;
@@ -73,7 +80,10 @@
       >
         {expanded
           ? "Show fewer tags"
-          : `Show all ${tags.length} tags`}<ChevronDown size={12} /></button
+          : `Show all ${tags.length} tags`}<ChevronDown
+          size={12}
+          style={expanded ? "transform: rotate(180deg)" : undefined}
+        /></button
       >{/if}
   {:else}<p class="tags-empty">
       Tags appear as metadata is found. You can also add your own.
@@ -84,8 +94,13 @@
       bind:value={draft}
       maxlength="80"
       placeholder="Add a tag…"
+      list={availableSuggestions.length ? listId : undefined}
       autocomplete="off"
     />
+    {#if availableSuggestions.length}<datalist id={listId}
+        >{#each availableSuggestions as tag (tagKey(tag))}<option value={tag}
+          ></option>{/each}</datalist
+      >{/if}
     <button
       class="secondary-button"
       aria-label="Add tag"

@@ -1,16 +1,24 @@
 <script lang="ts">
-  import { ClipboardList, ImageOff, RefreshCw } from "@lucide/svelte";
+  import {
+    ClipboardList,
+    ImageOff,
+    RefreshCw,
+    ArrowUpRight,
+    ChevronDown,
+  } from "@lucide/svelte";
   import type { Game } from "../lib/types";
   import { missingFields } from "../lib/gaps";
   let {
     games,
     failures,
     onrefresh,
+    onopen,
     busy = false,
   }: {
     games: Game[];
     failures: { url: string; retryAt: number }[];
     onrefresh: () => void;
+    onopen?: (game: Game) => void;
     busy?: boolean;
   } = $props();
   let gapLimit = $state(60),
@@ -49,18 +57,26 @@
           ><strong>Missing metadata</strong><small
             >Games with incomplete details</small
           ></span
-        ><b>{gaps.length}</b></summary
+        ><b>{gaps.length}</b><ChevronDown size={15} class="health-chevron" /></summary
       >
       <div class="health-list">
-        {#each gaps.slice(0, gapLimit) as item (item.game.id)}<div
-            class="health-row"
-          >
-            <strong>{item.game.title}</strong><small
-              >{item.fields.join(" · ")}{item.game.metadataLocked
-                ? " · Locked"
-                : ""}</small
-            >
-          </div>{:else}<p class="health-empty">
+        {#each gaps.slice(0, gapLimit) as item (item.game.id)}{#if onopen}<button
+              class="health-row health-row-button"
+              onclick={() => onopen?.(item.game)}
+              ><span
+                ><strong>{item.game.title}</strong><small
+                  >{item.fields.join(" · ")}{item.game.metadataLocked
+                    ? " · Locked"
+                    : ""}</small
+                ></span
+              ><ArrowUpRight size={13} /></button
+            >{:else}<div class="health-row">
+              <strong>{item.game.title}</strong><small
+                >{item.fields.join(" · ")}{item.game.metadataLocked
+                  ? " · Locked"
+                  : ""}</small
+              >
+            </div>{/if}{:else}<p class="health-empty">
             No missing metadata found.
           </p>{/each}{#if gaps.length > gapLimit}<button
             class="text-button"
@@ -75,18 +91,26 @@
           ><strong>Unavailable covers</strong><small
             >Failed cache attempts</small
           ></span
-        ><b>{failed.length}</b></summary
+        ><b>{failed.length}</b><ChevronDown size={15} class="health-chevron" /></summary
       >
       <div class="health-list">
-        {#each failed.slice(0, failedLimit) as item (item.game.id)}<div
-            class="health-row"
-          >
-            <strong>{item.game.title}</strong><small
-              >{item.retryAt > Date.now()
-                ? `Retry after ${new Date(item.retryAt).toLocaleString()}`
-                : "Retry pending"}</small
-            >
-          </div>{:else}<p class="health-empty">
+        {#each failed.slice(0, failedLimit) as item (item.game.id)}{#if onopen}<button
+              class="health-row health-row-button"
+              onclick={() => onopen?.(item.game)}
+              ><span
+                ><strong>{item.game.title}</strong><small
+                  >{item.retryAt > Date.now()
+                    ? `Retry after ${new Date(item.retryAt).toLocaleString()}`
+                    : "Retry pending"}</small
+                ></span
+              ><ArrowUpRight size={13} /></button
+            >{:else}<div class="health-row">
+              <strong>{item.game.title}</strong><small
+                >{item.retryAt > Date.now()
+                  ? `Retry after ${new Date(item.retryAt).toLocaleString()}`
+                  : "Retry pending"}</small
+              >
+            </div>{/if}{:else}<p class="health-empty">
             No failed cover attempts.
           </p>{/each}{#if failed.length > failedLimit}<button
             class="text-button"
@@ -181,9 +205,46 @@
     overflow: auto;
     padding: 0 13px 8px;
   }
+  .health summary:hover {
+    background: var(--surface);
+    border-radius: 8px;
+  }
+  .health details[open] summary :global(.health-chevron) {
+    transform: rotate(180deg);
+  }
+  .health summary :global(.health-chevron) {
+    color: var(--faint);
+    transition: transform 0.15s;
+  }
   .health-row {
     padding: 10px 0;
     border-bottom: 1px solid var(--line);
+  }
+  .health-row-button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+    margin-top: 0;
+    padding: 10px 6px;
+    border-radius: 5px;
+    color: inherit;
+  }
+  .health-row-button > span {
+    min-width: 0;
+    flex: 1;
+  }
+  .health-row-button :global(svg) {
+    color: var(--faint);
+    flex-shrink: 0;
+  }
+  .health-row-button:hover {
+    background: var(--surface);
+  }
+  .health-row-button:hover :global(svg) {
+    color: var(--accent);
   }
   .health-row strong,
   .health-row small {
@@ -205,7 +266,7 @@
     color: var(--muted);
     padding: 10px 0;
   }
-  .health-list button {
+  .health-list > .text-button {
     margin-top: 10px;
   }
   @media (max-width: 1100px) {

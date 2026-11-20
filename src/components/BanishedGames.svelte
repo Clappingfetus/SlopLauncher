@@ -69,7 +69,7 @@
                 : next.delete(entry.id);
               selected = next;
             }}
-          /><span>{entry.title}</span><small
+          /><span title={entry.title}>{entry.title}</span><small
             >{new Date(entry.banishedAt).toLocaleDateString()}</small
           ></label
         >{:else}<p class="field-hint">
@@ -122,12 +122,18 @@
     padding: 9px 4px;
     border-bottom: 1px solid var(--line);
     font-size: 13px;
+    cursor: pointer;
   }
   .banished-row span {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .banished-row small {
     color: var(--muted);
+    flex-shrink: 0;
   }
   .banished-row:hover {
     background: var(--surface-hover);

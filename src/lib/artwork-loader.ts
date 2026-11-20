@@ -185,19 +185,24 @@ export class ArtworkLoader {
   private trim() {
     const max = this.options.maxEntries ?? 128,
       budget = this.options.maxBytes ?? 64 * 1024 * 1024;
-    let stats = this.stats();
-    const candidates = [...this.entries.values()]
-      .filter((e) => !e.users && e.state !== "loading" && e.state !== "queued")
-      .sort(
-        (a, b) =>
-          (this.wanted.get(b.key)?.priority ?? 100) -
-            (this.wanted.get(a.key)?.priority ?? 100) || a.touched - b.touched,
-      );
+    let entries = this.entries.size;
+    let bytes = 0;
+    for (const e of this.entries.values()) bytes += e.value?.bytes ?? 0;
+    if (entries <= max && bytes <= budget) return;
+    const candidates: Entry[] = [];
+    for (const e of this.entries.values())
+      if (!e.users && e.state !== "loading" && e.state !== "queued")
+        candidates.push(e);
+    candidates.sort(
+      (a, b) =>
+        (this.wanted.get(b.key)?.priority ?? 100) -
+          (this.wanted.get(a.key)?.priority ?? 100) || a.touched - b.touched,
+    );
     for (const e of candidates) {
-      if (stats.entries <= max && stats.bytes <= budget) break;
+      if (entries <= max && bytes <= budget) break;
       this.remove(e);
-      stats.entries--;
-      stats.bytes -= e.value?.bytes ?? 0;
+      entries--;
+      bytes -= e.value?.bytes ?? 0;
     }
   }
   private pump() {

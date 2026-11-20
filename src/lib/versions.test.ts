@@ -42,6 +42,19 @@ const settings: Settings = {
   preferredSource: "gog",
 };
 describe("reversible duplicate versions", () => {
+  it("counts groups after additions, rematches and removals, including filtered lists", () => {
+    const first = game("1", "steam"), late = game("2", "gog");
+    const renamed = { ...late, title: "Different Adventure" };
+    for (const [games, expected] of [
+      [[first], 1], [[first, late], 1], [[first, renamed], 2], [[renamed], 1],
+    ] as const) {
+      const list = [...games];
+      const index = versionLibrary(list, settings);
+      expect(index.count(list)).toBe(expected);
+      expect(index.count(list.slice(1))).toBe(index.collapse(list.slice(1)).length);
+      expect(versionLibrary(list, settings, false).count(list)).toBe(list.length);
+    }
+  });
   it("matches punctuation and ampersand variants without stripping edition or sequel words", () => {
     const games = [
       game("1", "steam", "Hero’s Quest™: Fire & Ice"),

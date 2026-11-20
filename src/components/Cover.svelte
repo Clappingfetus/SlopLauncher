@@ -8,6 +8,8 @@
     artworkCatalogState,
     invalidatePreparedArtwork,
   } from "../lib/backend";
+  import { onlineVersion } from "../lib/online";
+  import { untrack } from "svelte";
   let {
     game,
     hero = false,
@@ -35,7 +37,7 @@
       ].filter((url): url is string => !!url),
     ),
   ]);
-  let candidateIdentity = $derived(JSON.stringify([game.id, candidates]));
+  let candidateIdentity = $derived(`${game.id}\0${candidates.join("\0")}`);
   let url = $derived(
     candidates.find(
       (url) =>
@@ -52,7 +54,7 @@
       ],
     };
   }
-  let key = $derived(JSON.stringify([url, thumbnail]));
+  let key = $derived(`${url ?? ""}\0${thumbnail}`);
   let failed = $derived(failure === key);
   let display = $derived.by(() => {
     void $artworkCatalogState;
@@ -90,20 +92,23 @@
       request.release();
     };
   });
+  let lastOnline = untrack(() => $onlineVersion);
+  $effect(() => {
+    const version = $onlineVersion;
+    if (version === lastOnline) return;
+    lastOnline = version;
+    untrack(() => {
+      for (const rejectedUrl of rejected.urls)
+        retryArtwork(rejectedUrl, thumbnail);
+      rejected = { identity: "", urls: [] };
+      if (failed && url) {
+        retryArtwork(url, thumbnail);
+        failure = "";
+        reconnect++;
+      }
+    });
+  });
 </script>
-
-<svelte:window
-  ononline={() => {
-    for (const rejectedUrl of rejected.urls)
-      retryArtwork(rejectedUrl, thumbnail);
-    rejected = { identity: "", urls: [] };
-    if (failed && url) {
-      retryArtwork(url, thumbnail);
-      failure = "";
-      reconnect++;
-    }
-  }}
-/>
 
 {#if display && !failed}<img
     src={display}

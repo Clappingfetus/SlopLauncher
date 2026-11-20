@@ -92,17 +92,21 @@
         : "smooth",
     });
   }
+  let canScrollLeft = $derived(left >= 2);
+  let canScrollRight = $derived(left + width < totalWidth - 2);
 </script>
 
 <div class="shelf-scroller">
   <button
     class="shelf-arrow prev"
     aria-label="Scroll shelf left"
-    disabled={left < 2}
+    disabled={!canScrollLeft}
     onclick={() => scroll(-1)}><ChevronLeft size={17} /></button
   >
   <div
     class="shelf-track"
+    class:fade-left={canScrollLeft}
+    class:fade-right={canScrollRight}
     bind:this={track}
     bind:clientWidth={width}
     onscroll={(event) => {
@@ -139,7 +143,7 @@
   <button
     class="shelf-arrow next"
     aria-label="Scroll shelf right"
-    disabled={left + width >= totalWidth - 2}
+    disabled={!canScrollRight}
     onclick={() => scroll(1)}><ChevronRight size={17} /></button
   >
 </div>
@@ -156,6 +160,29 @@
     outline-offset: 3px;
     padding: 4px 3px 8px;
     overscroll-behavior-inline: contain;
+  }
+  .shelf-track.fade-right {
+    mask-image: linear-gradient(
+      to right,
+      #000 calc(100% - 44px),
+      transparent 100%
+    );
+  }
+  .shelf-track.fade-left {
+    mask-image: linear-gradient(
+      to left,
+      #000 calc(100% - 44px),
+      transparent 100%
+    );
+  }
+  .shelf-track.fade-left.fade-right {
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      #000 44px,
+      #000 calc(100% - 44px),
+      transparent 100%
+    );
   }
   .shelf-space {
     position: relative;
@@ -180,8 +207,11 @@
     transition: opacity 0.12s;
   }
   .shelf-scroller:hover .shelf-arrow,
-  .shelf-arrow:focus-visible {
+  .shelf-scroller:focus-within .shelf-arrow {
     opacity: 1;
+  }
+  @media (hover: none) {
+    .shelf-arrow { opacity: 1; }
   }
   .shelf-arrow:disabled {
     visibility: hidden;

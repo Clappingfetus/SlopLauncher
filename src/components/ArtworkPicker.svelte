@@ -171,10 +171,19 @@
     padding: 9px 15px;
     border: 1px solid var(--line);
     border-radius: 7px;
+    transition:
+      background 0.12s,
+      border-color 0.12s,
+      color 0.12s;
+  }
+  .artwork-tabs button:hover {
+    background: var(--surface);
+    border-color: var(--muted);
   }
   .artwork-tabs .active {
     background: var(--surface-hover);
     color: var(--accent);
+    border-color: var(--accent);
   }
   .artwork-default {
     display: flex;
@@ -186,6 +195,13 @@
     border: 1px solid var(--line);
     border-radius: 9px;
     margin-bottom: 18px;
+    transition:
+      background 0.12s,
+      border-color 0.12s;
+  }
+  .artwork-default:hover {
+    background: var(--surface);
+    border-color: var(--muted);
   }
   .artwork-default[aria-pressed="true"] {
     border-color: var(--accent);
@@ -220,6 +236,13 @@
     border: 1px solid var(--line);
     border-radius: 9px;
     overflow: hidden;
+    transition:
+      border-color 0.12s,
+      background 0.12s;
+  }
+  .artwork-option:hover {
+    border-color: var(--muted);
+    background: var(--surface);
   }
   .artwork-option.chosen {
     border-color: var(--accent);

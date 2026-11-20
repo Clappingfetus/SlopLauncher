@@ -22,13 +22,12 @@ export const sortOptions = [
 ] as const;
 export type Filter =
   "all" | "recent" | "favorites" | "hidden" | Source | CollectionFilter;
-export function filterGames(
+export function matchGames(
   games: Game[],
   filter: Filter,
   query: string,
   installed: boolean,
   tag: string,
-  sort: string,
   collections: GameCollection[] = [],
   showHiddenGames = false,
   source = "",
@@ -39,7 +38,7 @@ export function filterGames(
     : null;
   const words = searchText(query).trim().split(/\s+/).filter(Boolean);
   const selectedTag = tagKey(tag);
-  const result = games.filter((g) => {
+  return games.filter((g) => {
     if (filter === "hidden" ? !g.hidden : g.hidden && !showHiddenGames)
       return false;
     if (source && !g.copies.some((c) => c.source === source)) return false;
@@ -56,6 +55,13 @@ export function filterGames(
     const text = searchIndex(g).text;
     return words.every((w) => text.includes(w));
   });
+}
+export function sortGames(
+  games: Game[],
+  sort: string,
+  activitySource: ActivitySource = "all",
+): Game[] {
+  const result = [...games];
   // Validate/provider-decode once per game, rather than inside O(n log n) comparisons.
   const times = sort.startsWith("hltb-")
     ? new Map(result.map((g) => [g.id, mainExtraHours(g)]))
@@ -64,6 +70,10 @@ export function filterGames(
       : sort === "year"
         ? new Map(result.map((g) => [g.id, releaseSpan(g)?.[0]]))
         : undefined;
+  const recent =
+    sort === "recent"
+      ? new Map(result.map((g) => [g.id, recentSortAt(g, activitySource) ?? 0]))
+      : undefined;
   return result.sort((a, b) =>
     times
       ? (times.get(a.id) === undefined
@@ -75,15 +85,42 @@ export function filterGames(
             : (times.get(a.id)! - times.get(b.id)!) *
               (sort === "year" || sort.endsWith("-desc") ? -1 : 1)) ||
         a.title.localeCompare(b.title)
-      : sort === "recent"
-        ? (recentSortAt(b, activitySource) ?? 0) -
-            (recentSortAt(a, activitySource) ?? 0) ||
+      : recent
+        ? recent.get(b.id)! - recent.get(a.id)! ||
           a.title.localeCompare(b.title)
         : sort === "added"
           ? b.addedAt - a.addedAt
           : sort === "year"
             ? (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title)
             : a.title.localeCompare(b.title),
+  );
+}
+export function filterGames(
+  games: Game[],
+  filter: Filter,
+  query: string,
+  installed: boolean,
+  tag: string,
+  sort: string,
+  collections: GameCollection[] = [],
+  showHiddenGames = false,
+  source = "",
+  activitySource: ActivitySource = "all",
+): Game[] {
+  return sortGames(
+    matchGames(
+      games,
+      filter,
+      query,
+      installed,
+      tag,
+      collections,
+      showHiddenGames,
+      source,
+      activitySource,
+    ),
+    sort,
+    activitySource,
   );
 }
 export function mergeDiscovered(existing: Game[], incoming: Game[]): Game[] {

@@ -4,6 +4,29 @@ import type { Game, Copy, Settings } from "./types";
 import { currentResult, steamId } from "./enrichment-identity";
 import { preferredArtwork } from "./store-artwork";
 import { isEmulated, selectedArtwork } from "./artwork";
+const sameStringList = (a?: string[], b?: string[]) =>
+  a === b ||
+  (!!a && !!b && a.length === b.length && a.every((v, i) => v === b[i]));
+const sameFallbacks = (
+  a: Game["artworkFallbacks"],
+  b: Game["artworkFallbacks"],
+) =>
+  a === b ||
+  (sameStringList(a?.cover, b?.cover) && sameStringList(a?.hero, b?.hero));
+const sameActivity = (
+  a: ActivitySummary | undefined,
+  b: ActivitySummary | undefined,
+) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.launcherLastAt === b.launcherLastAt &&
+    a.launcherLaunchCount === b.launcherLaunchCount &&
+    a.steam?.lastPlayedAt === b.steam?.lastPlayedAt &&
+    a.steam?.totalMinutes === b.steam?.totalMinutes &&
+    a.steam?.recentMinutes === b.steam?.recentMinutes &&
+    a.steam?.checkedAt === b.steam?.checkedAt &&
+    a.steam?.recentCheckedAt === b.steam?.recentCheckedAt);
 const reviewPresentationCache = new WeakMap<Game, Game>();
 export function gameContextIdentity(game: Game, copy: Copy | undefined) {
   return JSON.stringify([
@@ -119,6 +142,7 @@ export function versionLibrary(
           copy,
         })),
       collapse: (list: Game[]) => list,
+      count: (list: Game[]) => list.length,
       choose: (list: Game[]) => list[0],
       withArtwork: (game: Game) => game,
       withPresentation: (game: Game) => ({
@@ -271,6 +295,8 @@ export function versionLibrary(
     return list;
   };
   function choose(candidates: Game[]): Game {
+    if (candidates.length === 1 && candidates[0].copies.length <= 1)
+      return candidates[0];
     const allowed = new Set(candidates.map((g) => g.id)),
       all = members(candidates[0].id),
       options = candidates.flatMap((game) =>
@@ -343,10 +369,8 @@ export function versionLibrary(
       previous &&
       previous.cover === artwork.cover &&
       previous.hero === artwork.hero &&
-      JSON.stringify(previous.activitySummary) ===
-        JSON.stringify(activitySummary) &&
-      JSON.stringify(previous.artworkFallbacks) ===
-        JSON.stringify(artwork.artworkFallbacks) &&
+      sameActivity(previous.activitySummary, activitySummary) &&
+      sameFallbacks(previous.artworkFallbacks, artwork.artworkFallbacks) &&
       previous.reviewSummary?.every(
         (row, i) =>
           row.rating === rows![i].rating &&
@@ -364,5 +388,11 @@ export function versionLibrary(
     presentations.set(game, shown);
     return shown;
   }
-  return { members, versions, collapse, choose, withArtwork, withPresentation };
+  function count(list: Game[]): number {
+    if (!settings.hideDuplicateGames) return list.length;
+    const groups = new Set<string>();
+    for (const game of list) groups.add(root(game.id));
+    return groups.size;
+  }
+  return { members, versions, collapse, count, choose, withArtwork, withPresentation };
 }

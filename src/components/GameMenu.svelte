@@ -13,6 +13,8 @@
     Gamepad2,
     Image,
     Trash2,
+    Heart,
+    EyeOff,
   } from "@lucide/svelte";
   import type { GameCollection } from "../lib/types";
   let {
@@ -281,14 +283,14 @@
         onclick={() => {
           onfavorite?.();
           dismiss();
-        }}>Add to Favorites</button
+        }}><Heart size={16} />Add to Favorites</button
       >{/if}
     {#if onhide}<button
         role="menuitem"
         onclick={() => {
           onhide?.();
           dismiss();
-        }}>Hide games</button
+        }}><EyeOff size={16} />Hide games</button
       >{/if}
     {#if onaddtocollection}<button
         role="menuitem"
@@ -348,6 +350,13 @@
 
 <style>
   .banish-action {
+    color: var(--danger);
+    margin-top: 4px;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 6px 6px;
+    padding-top: 13px;
+  }
+  .banish-action :global(svg) {
     color: var(--danger);
   }
   .game-menu {

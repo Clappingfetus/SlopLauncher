@@ -26,7 +26,9 @@
   <div class="consensus">
     <div>
       <span class="eyebrow">CONSENSUS</span>
-      <div class="score">{combined?.stars ?? "—"}<small>/ 10</small></div>
+      <div class="score" class:empty={!combined}>
+        {combined?.stars ?? "—"}<small>/ 10</small>
+      </div>
     </div>
     <div class="consensus-summary">
       <div
@@ -152,6 +154,10 @@
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
+  .score.empty {
+    color: var(--muted);
+    font-weight: 400;
+  }
   .score small {
     font-size: 13px;
     font-weight: 400;
@@ -193,7 +199,7 @@
   }
   .review-sources {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
     gap: 10px;
   }
   .review-source {

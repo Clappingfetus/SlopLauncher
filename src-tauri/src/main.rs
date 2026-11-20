@@ -319,7 +319,7 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 fn db_open(path: &Path) -> Result<Connection, String> {
     let db = Connection::open(path).map_err(err)?;
-    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS games(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS metadata(app_id INTEGER PRIMARY KEY,data TEXT NOT NULL,updated_at INTEGER NOT NULL); PRAGMA user_version=1;").map_err(err)?;
+    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA temp_store=MEMORY; PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; CREATE TABLE IF NOT EXISTS games(id TEXT PRIMARY KEY, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY,data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS metadata(app_id INTEGER PRIMARY KEY,data TEXT NOT NULL,updated_at INTEGER NOT NULL); PRAGMA user_version=1;").map_err(err)?;
     banishment::setup(&db)?;
     cover_catalog::setup(&db)?;
     providers::setup_schema(&db)?;
@@ -486,9 +486,10 @@ fn store_enrichment(games: &[Game], db: &mut Connection) -> Result<(), String> {
     }
     let tx = db.transaction().map_err(err)?;
     for incoming in games {
-        let existing = tx.query_row("SELECT data FROM games WHERE id=?1", [&incoming.id], |r| {
-            r.get::<_, String>(0)
-        });
+        let existing = tx
+            .prepare_cached("SELECT data FROM games WHERE id=?1")
+            .map_err(err)?
+            .query_row([&incoming.id], |r| r.get::<_, String>(0));
         let raw = match existing {
             Ok(raw) => raw,
             Err(rusqlite::Error::QueryReturnedNoRows) => continue,
@@ -542,11 +543,10 @@ fn store_enrichment(games: &[Game], db: &mut Connection) -> Result<(), String> {
         document["enrichment"] = game.enrichment.clone().unwrap_or(serde_json::Value::Null);
         let updated = serde_json::to_string(&document).map_err(err)?;
         if updated != raw {
-            tx.execute(
-                "UPDATE games SET data=?2 WHERE id=?1",
-                params![game.id, updated],
-            )
-            .map_err(err)?;
+            tx.prepare_cached("UPDATE games SET data=?2 WHERE id=?1")
+                .map_err(err)?
+                .execute(params![game.id, updated])
+                .map_err(err)?;
         }
     }
     tx.commit().map_err(err)
@@ -606,10 +606,21 @@ fn store_library(library: &Library, db: &mut Connection) -> Result<(), String> {
     let tx = db.transaction().map_err(err)?;
     tx.execute_batch("CREATE TEMP TABLE IF NOT EXISTS incoming_ids(id TEXT PRIMARY KEY); DELETE FROM incoming_ids;").map_err(err)?;
     for original in &library.games {
-        let mut merged=original.clone();
-        if let Ok(raw)=tx.query_row("SELECT data FROM games WHERE id=?1",[&original.id],|r|r.get::<_,String>(0)){if let Ok(existing)=serde_json::from_str::<Game>(&raw){play_activity::preserve(&existing,&mut merged);}}
-        let g=&merged;
-        if banishment::blocked(&tx,g) { continue; }
+        let mut merged = original.clone();
+        let existing_raw = tx
+            .prepare_cached("SELECT data FROM games WHERE id=?1")
+            .map_err(err)?
+            .query_row([&original.id], |r| r.get::<_, String>(0))
+            .ok();
+        if let Some(raw) = &existing_raw {
+            if let Ok(existing) = serde_json::from_str::<Game>(raw) {
+                play_activity::preserve(&existing, &mut merged);
+            }
+        }
+        let g = &merged;
+        if banishment::blocked(&tx, g) {
+            continue;
+        }
         if g.tags.len() > 64
             || g.tags.iter().any(|tag| {
                 tag.is_empty() || tag.chars().count() > 80 || tag.chars().any(char::is_control)
@@ -622,12 +633,16 @@ fn store_library(library: &Library, db: &mut Connection) -> Result<(), String> {
         if g.id.len() > 512 || g.title.len() > 2048 || g.notes.len() > 100_000 {
             return Err("Game field is too long".into());
         }
-        tx.execute(
-            "INSERT OR REPLACE INTO games(id,data)VALUES(?1,?2)",
-            params![g.id, serde_json::to_string(g).map_err(err)?],
-        )
-        .map_err(err)?;
-        tx.execute("INSERT OR IGNORE INTO incoming_ids(id)VALUES(?1)", [&g.id])
+        let serialized = serde_json::to_string(g).map_err(err)?;
+        if existing_raw.as_deref() != Some(serialized.as_str()) {
+            tx.prepare_cached("INSERT OR REPLACE INTO games(id,data)VALUES(?1,?2)")
+                .map_err(err)?
+                .execute(params![g.id, serialized])
+                .map_err(err)?;
+        }
+        tx.prepare_cached("INSERT OR IGNORE INTO incoming_ids(id)VALUES(?1)")
+            .map_err(err)?
+            .execute([&g.id])
             .map_err(err)?;
     }
     tx.execute(

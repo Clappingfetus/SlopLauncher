@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import {
     GripVertical,
     ArrowUp,
@@ -21,6 +22,8 @@
     draggable = true,
     onorder,
     onbrowse,
+    onlibrary,
+    onretry,
     onopen,
     onfavorite,
     onhide,
@@ -39,6 +42,8 @@
     draggable?: boolean;
     onorder: (ids: string[]) => void;
     onbrowse: (id: string) => void;
+    onlibrary: () => void;
+    onretry: () => void;
     onopen: (g: Game) => void;
     onfavorite: (g: Game) => void;
     onhide: (g: Game) => void;
@@ -58,7 +63,7 @@
     shelves.find((s) => s.id === "added")?.games.length ?? 0,
   );
   let announcement = $state("");
-  function move(moving: string, target: string, below: boolean) {
+  function move(moving: string, target: string, below: boolean, control?: HTMLButtonElement) {
     const next = moveHomeRow(
       shelves.map((s) => s.id),
       moving,
@@ -67,6 +72,12 @@
     );
     onorder(next);
     announcement = `Moved ${shelves.find((s) => s.id === moving)?.title ?? "row"}`;
+    if (control) void tick().then(() => {
+      const focusTarget = control.disabled
+        ? control.closest("section")?.querySelector<HTMLButtonElement>(".shelf-title")
+        : control;
+      focusTarget?.focus();
+    });
   }
   function finish() {
     dragging = "";
@@ -90,7 +101,7 @@
     <div>
       <button class="text-button" onclick={() => onorder([])}
         >Reset row order</button
-      ><button class="secondary-button" onclick={() => onbrowse("activity")}
+      ><button class="secondary-button" onclick={onlibrary}
         ><Library size={15} />Open Library</button
       >
     </div>
@@ -98,6 +109,7 @@
   <span class="sr-only" role="status">{announcement}</span>
   {#if error}<div class="home-empty">
       <p role="alert">{error}</p>
+      <button class="primary-button" onclick={onretry}>Retry opening library</button>
       <button class="secondary-button" onclick={onsources}>Open Sources</button>
     </div>
   {:else if !ready}<div class="home-empty">Opening your library…</div>
@@ -149,8 +161,16 @@
               <button
                 class="shelf-title"
                 draggable="true"
-                aria-label={`Move ${shelf.title} row`}
-                title="Drag to reorder; use the arrows to move a row with the keyboard"
+                aria-label={`Browse ${shelf.title}`}
+                title={`${shelf.title} · Click to browse, drag or use the up and down arrow keys to reorder`}
+                onclick={() => onbrowse(shelf.id)}
+                onkeydown={(event) => {
+                  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                  event.preventDefault();
+                  const below = event.key === "ArrowDown";
+                  const target = shelves[index + (below ? 1 : -1)];
+                  if (target) move(shelf.id, target.id, below, event.currentTarget);
+                }}
                 ondragstart={(event) => {
                   event.stopPropagation();
                   if (!event.dataTransfer) return;
@@ -169,13 +189,13 @@
               class="row-move"
               aria-label={`Move ${shelf.title} up`}
               disabled={index === 0}
-              onclick={() => move(shelf.id, shelves[index - 1].id, false)}
+              onclick={(event) => move(shelf.id, shelves[index - 1].id, false, event.currentTarget)}
               ><ArrowUp size={13} /></button
             ><button
               class="row-move"
               aria-label={`Move ${shelf.title} down`}
               disabled={index === shelves.length - 1}
-              onclick={() => move(shelf.id, shelves[index + 1].id, true)}
+              onclick={(event) => move(shelf.id, shelves[index + 1].id, true, event.currentTarget)}
               ><ArrowDown size={13} /></button
             ><button class="text-button" onclick={() => onbrowse(shelf.id)}
               >View all<ArrowUpRight size={12} /></button
@@ -340,8 +360,16 @@
     opacity: 0;
   }
   .home-shelf:hover .row-move,
-  .row-move:focus-visible {
+  .shelf-heading:focus-within .row-move {
     opacity: 1;
+  }
+  .shelf-title:hover span,
+  .shelf-title:focus-visible span {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  @media (hover: none) {
+    .row-move { opacity: 1; }
   }
   .shelf-controls .text-button {
     font-size: 11px;

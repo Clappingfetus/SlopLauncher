@@ -9,6 +9,26 @@ export interface HomeShelf {
 }
 export const HOME_ROW_DRAG = "application/x-sloplauncher-home-row";
 const byTitle = (a: Game, b: Game) => a.title.localeCompare(b.title);
+export function homeCollectionMembers(games: Game[], collections: GameCollection[]) {
+  const lists = new Map<string, Game[]>();
+  const memberships = new Map<string, Game[][]>();
+  for (const collection of collections) {
+    const list: Game[] = [];
+    lists.set(collection.id, list);
+    for (const id of new Set(collection.gameIds)) {
+      const targets = memberships.get(id);
+      if (targets) targets.push(list);
+      else memberships.set(id, [list]);
+    }
+  }
+  if (memberships.size) {
+    for (const game of games) {
+      const targets = memberships.get(game.id);
+      if (targets) for (const list of targets) list.push(game);
+    }
+  }
+  return lists;
+}
 // Three played entries per addition keep activity focused on returning to games.
 export function recentActivity(played: Game[], added: Game[]) {
   // A game already represented in the played stream must not consume an
@@ -27,10 +47,11 @@ export function recentActivity(played: Game[], added: Game[]) {
     }
   };
   while (p < played.length || a < added.length) {
-    for (let i = 0; i < 3 && p < played.length;) {
+    for (let i = 0; i < 3 && p < played.length; ) {
       const game = played[p++];
       if (!seen.has(game.id)) {
-        take([game], 0);
+        seen.add(game.id);
+        result.push(game);
         i++;
       }
     }
@@ -45,15 +66,18 @@ export function buildHomeShelves(
   now = Date.now(),
   collectionGames?: Map<string, Game[]>,
 ): HomeShelf[] {
-  const played = games
-    .filter((g) => {
-      const date = recentSortAt(g);
-      return date && date <= now;
-    })
-    .sort(
-      (a, b) =>
-        (recentSortAt(b) ?? 0) - (recentSortAt(a) ?? 0) || byTitle(a, b),
-    );
+  const playedAt = new Map<string, number>();
+  const played: Game[] = [];
+  for (const g of games) {
+    const date = recentSortAt(g);
+    if (date && date <= now) {
+      playedAt.set(g.id, date);
+      played.push(g);
+    }
+  }
+  played.sort(
+    (a, b) => (playedAt.get(b.id)! - playedAt.get(a.id)!) || byTitle(a, b),
+  );
   const added = [...games].sort(
     (a, b) => b.addedAt - a.addedAt || byTitle(a, b),
   );
@@ -105,14 +129,19 @@ export function buildHomeShelves(
       description: "Main + Extras · 30 hours or more",
       games: long,
     },
-    ...collections.map((c) => ({
-      id: `collection:${c.id}`,
-      title: c.name,
-      description: c.rule ? "Automatic collection" : "Your collection",
-      games:
-        collectionGames?.get(c.id) ??
-        games.filter((g) => c.gameIds.includes(g.id)),
-    })),
+    ...collections.map((c) => {
+      let list = collectionGames?.get(c.id);
+      if (!list) {
+        const ids = new Set(c.gameIds);
+        list = games.filter((g) => ids.has(g.id));
+      }
+      return {
+        id: `collection:${c.id}`,
+        title: c.name,
+        description: c.rule ? "Automatic collection" : "Your collection",
+        games: list,
+      };
+    }),
   ];
 }
 // Reconcile every render: newly created collections appear without a migration,

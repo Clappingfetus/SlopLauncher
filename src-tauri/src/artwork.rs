@@ -60,15 +60,21 @@ fn write_cached(file: &Path, bytes: &[u8]) -> Result<(), String> {
     }
     Ok(())
 }
-pub fn find_cached(key: &str, dir: &Path) -> Option<String> {
+fn find_with_exts(key: &str, dir: &Path, exts: &[&str]) -> Option<String> {
     let name = cache_name(key);
-    for ext in ["jpg", "png", "webp"] {
+    for ext in exts {
         let file = dir.join(format!("{name}.{ext}"));
         if file.is_file() {
             return Some(file.to_string_lossy().into());
         }
     }
     None
+}
+pub fn find_cached(key: &str, dir: &Path) -> Option<String> {
+    find_with_exts(key, dir, &["jpg", "png", "webp"])
+}
+fn find_thumbnail(key: &str, dir: &Path) -> Option<String> {
+    find_with_exts(key, dir, &["png", "jpg", "webp"])
 }
 pub fn thumbnail_key(url: &str, width: u32) -> Result<String, String> {
     if !matches!(width, 256 | 384 | 512) {
@@ -82,8 +88,8 @@ pub fn thumbnail_key(url: &str, width: u32) -> Result<String, String> {
 pub fn prepared(url: &str, dir: &Path) -> Option<String> {
     let key = thumbnail_key(url, 256).ok()?;
     let target = dir.join("library-thumbnails");
-    if let Some(path) = find_cached(&key, &target) { return Some(path); }
-    let old = find_cached(&key, dir)?;
+    if let Some(path) = find_thumbnail(&key, &target) { return Some(path); }
+    let old = find_thumbnail(&key, dir)?;
     std::fs::create_dir_all(&target).ok()?;
     let destination = target.join(Path::new(&old).file_name()?);
     std::fs::copy(&old, &destination).ok()?;
@@ -96,7 +102,7 @@ pub fn thumbnail(source: &Path, key: &str, dir: &Path, width: u32) -> Result<Str
         codecs::png::{CompressionType, FilterType, PngEncoder},
         ImageEncoder,
     };
-    if let Some(path) = find_cached(key, dir) {
+    if let Some(path) = find_thumbnail(key, dir) {
         return Ok(path);
     }
     let mut reader = image::ImageReader::open(source)

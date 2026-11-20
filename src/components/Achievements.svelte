@@ -184,11 +184,16 @@
     {#if !filtered.length}<p class="achievement-message">
         No {filter} achievements.
       </p>{/if}
-    {#if filtered.length > limit}<button
-        class="text-button achievement-more"
-        onclick={() => (limit += 20)}
-        >Show more · {filtered.length - limit} remaining</button
-      >{/if}
+    {#if filtered.length > limit}<div class="achievement-more">
+        <button
+          class="text-button"
+          onclick={() => (limit += 20)}
+          >Show more · {filtered.length - limit} remaining</button
+        >{#if filtered.length - limit > 20}<button
+            class="text-button"
+            onclick={() => (limit = filtered.length)}>Show all</button
+          >{/if}
+      </div>{/if}
   {:else if data}<p class="achievement-message">
       {sourceName} lists no achievements for this game.
     </p>
@@ -282,9 +287,14 @@
     gap: 6px;
   }
   select {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 5px;
     padding: 6px 8px;
     font-size: 12px;
     max-width: 100%;
+    cursor: pointer;
   }
   .achievement-list {
     list-style: none;
@@ -342,6 +352,9 @@
     font-size: 11px;
   }
   .achievement-more {
+    display: flex;
+    align-items: center;
+    gap: 16px;
     margin-top: 14px;
   }
   @media (max-width: 1000px) {
