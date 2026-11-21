@@ -5,6 +5,7 @@
     ArrowUp,
     ArrowDown,
     ArrowUpRight,
+    ChevronDown,
     Library,
   } from "@lucide/svelte";
   import HomeShelf from "./HomeShelf.svelte";
@@ -16,6 +17,7 @@
   import type { Game } from "../lib/types";
   let {
     shelves,
+    orderChanged,
     cardWidth,
     ready,
     error,
@@ -36,6 +38,7 @@
     onscroll,
   }: {
     shelves: Shelf[];
+    orderChanged: boolean;
     cardWidth: number;
     ready: boolean;
     error?: string;
@@ -64,6 +67,7 @@
   );
   let announcement = $state("");
   function move(moving: string, target: string, below: boolean, control?: HTMLButtonElement) {
+    if (moving === target) return;
     const next = moveHomeRow(
       shelves.map((s) => s.id),
       moving,
@@ -71,7 +75,9 @@
       below,
     );
     onorder(next);
-    announcement = `Moved ${shelves.find((s) => s.id === moving)?.title ?? "row"}`;
+    const index = next.indexOf(moving);
+    const title = shelves.find((s) => s.id === moving)?.title ?? "Shelf";
+    announcement = `${title} moved to row ${index + 1} of ${next.length}.`;
     if (control) void tick().then(() => {
       const focusTarget = control.disabled
         ? control.closest("section")?.querySelector<HTMLButtonElement>(".shelf-title")
@@ -82,6 +88,16 @@
   function finish() {
     dragging = "";
     over = "";
+  }
+  function jumpToShelf(select: HTMLSelectElement) {
+    const section = page?.querySelector<HTMLElement>(
+      `[data-home-shelf="${CSS.escape(select.value)}"]`,
+    );
+    select.value = "";
+    section?.scrollIntoView({ block: "start" });
+    section?.querySelector<HTMLButtonElement>(".shelf-title")?.focus({
+      preventScroll: true,
+    });
   }
   $effect(() => {
     if (page) page.scrollTop = initialTop;
@@ -99,7 +115,27 @@
       <h1>Home <span>{count}</span></h1>
     </div>
     <div>
-      <button class="text-button" onclick={() => onorder([])}
+      {#if ready && count && !error}
+        <label class="shelf-jump sort-control">
+          <select
+            aria-label="Jump to shelf"
+            onchange={(event) => jumpToShelf(event.currentTarget)}
+          >
+            <option value="" selected disabled>Jump to shelf</option>
+            {#each shelves as shelf (shelf.id)}
+              <option value={shelf.id}>{shelf.title} ({shelf.games.length})</option>
+            {/each}
+          </select><ChevronDown size={12} />
+        </label>
+      {/if}
+      <button
+        class="text-button"
+        aria-disabled={!ready || !count || !orderChanged}
+        onclick={() => {
+          if (!ready || !count || !orderChanged) return;
+          onorder([]);
+          announcement = "Default Home row order restored.";
+        }}
         >Reset row order</button
       ><button class="secondary-button" onclick={onlibrary}
         ><Library size={15} />Open Library</button
@@ -126,6 +162,7 @@
         class:row-dragging={dragging === shelf.id}
         class:drop-before={over === shelf.id && !after && dragging !== shelf.id}
         class:drop-after={over === shelf.id && after && dragging !== shelf.id}
+        data-home-shelf={shelf.id}
         aria-label={shelf.title}
         ondragover={(event) => {
           if (!dragging || !event.dataTransfer?.types.includes(HOME_ROW_DRAG))
@@ -241,6 +278,7 @@
   }
   .home-heading {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     gap: 20px;
@@ -263,11 +301,31 @@
 
   .home-heading > div:last-child {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 18px;
+    gap: 10px 18px;
+  }
+  .shelf-jump {
+    position: relative;
+  }
+  .shelf-jump select {
+    width: 116px;
+    padding: 9px 24px 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .shelf-jump :global(svg) {
+    position: absolute;
+    right: 9px;
+    pointer-events: none;
+  }
+  .home-heading .text-button[aria-disabled="true"] {
+    color: var(--faint);
+    cursor: default;
   }
   .home-shelf {
     position: relative;
+    scroll-margin-top: 12px;
     margin-bottom: 26px;
     border-radius: 8px;
   }

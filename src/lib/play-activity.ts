@@ -86,7 +86,30 @@ export function mergeSteamActivity(
   }
   return records.size ? [...records.values()] : undefined;
 }
+function localPlayedAt(game: Game) {
+  return Math.max(
+    positive(game.lastPlayed) ?? 0,
+    positive(game.launcherActivity?.lastLaunchedAt) ?? 0,
+  );
+}
 export function summarizeActivity(games: Game[]): ActivitySummary | undefined {
+  const onlyGame = games[0];
+  if (games.length === 1 && (onlyGame.steamActivity?.length ?? 0) <= 1) {
+    const local = localPlayedAt(onlyGame);
+    const count = Math.max(0, onlyGame.launcherActivity?.launchCount ?? 0);
+    const snapshot = onlyGame.steamActivity?.[0];
+    const steam =
+      snapshot && validSteamActivity(snapshot, onlyGame.copies)
+        ? snapshot
+        : undefined;
+    return local || count || steam
+      ? {
+          launcherLastAt: local || undefined,
+          launcherLaunchCount: count,
+          steam,
+        }
+      : undefined;
+  }
   let local = 0,
     count = 0;
   const seen = new Set<string>();
@@ -94,11 +117,7 @@ export function summarizeActivity(games: Game[]): ActivitySummary | undefined {
   for (const game of games) {
     if (!seen.has(game.id)) {
       seen.add(game.id);
-      local = Math.max(
-        local,
-        positive(game.lastPlayed) ?? 0,
-        positive(game.launcherActivity?.lastLaunchedAt) ?? 0,
-      );
+      local = Math.max(local, localPlayedAt(game));
       count += Math.max(0, game.launcherActivity?.launchCount ?? 0);
     }
     for (const item of game.steamActivity ?? []) {
@@ -124,16 +143,22 @@ export function summarizeActivity(games: Game[]): ActivitySummary | undefined {
 export function activity(game: Game) {
   return game.activitySummary ?? summarizeActivity([game]);
 }
-export function lastPlayedAt(game: Game, source: ActivitySource = "all") {
-  const summary = activity(game),
-    local = source === "steam" ? 0 : (positive(summary?.launcherLastAt) ?? 0),
+function exactPlayedAt(
+  summary: ActivitySummary | undefined,
+  source: ActivitySource,
+) {
+  const local = source === "steam" ? 0 : (positive(summary?.launcherLastAt) ?? 0),
     steam =
       source === "launcher" ? 0 : (positive(summary?.steam?.lastPlayedAt) ?? 0);
   return Math.max(local, steam) || undefined;
 }
+export function lastPlayedAt(game: Game, source: ActivitySource = "all") {
+  return exactPlayedAt(activity(game), source);
+}
 export function recentSortAt(game: Game, source: ActivitySource = "all") {
-  const exact = lastPlayedAt(game, source),
-    steam = source === "launcher" ? undefined : activity(game)?.steam;
+  const summary = activity(game);
+  const exact = exactPlayedAt(summary, source);
+  const steam = source === "launcher" ? undefined : summary?.steam;
   // Steam may report a recent game without an exact timestamp. Use only the
   // beginning of its reported two-week window as a conservative sorting bound.
   const bound =
@@ -143,13 +168,18 @@ export function recentSortAt(game: Game, source: ActivitySource = "all") {
   return Math.max(exact ?? 0, bound) || undefined;
 }
 export function applySteamHistory(games: Game[], patches: HistoryPatch[]) {
+  if (!patches.length) return games;
   const byId = new Map(patches.map((p) => [p.gameId, p]));
-  return games.map((game) => {
+  let result = games;
+  for (let index = 0; index < games.length; index++) {
+    const game = games[index];
     const patch = byId.get(game.id);
-    if (!patch) return game;
+    if (!patch) continue;
     const steamActivity = mergeSteamActivity(game, patch.activities);
-    return JSON.stringify(steamActivity) === JSON.stringify(game.steamActivity)
-      ? game
-      : { ...game, steamActivity };
-  });
+    if (JSON.stringify(steamActivity) === JSON.stringify(game.steamActivity))
+      continue;
+    if (result === games) result = games.slice();
+    result[index] = { ...game, steamActivity };
+  }
+  return result;
 }

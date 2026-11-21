@@ -45,3 +45,30 @@ export function libraryTags(
   }
   return collectTags(groups(), Infinity);
 }
+
+export type TagOption = { label: string; key: string };
+
+export function tagOptions(labels: string[]): TagOption[] {
+  return labels.map((label) => ({ label, key: tagKey(label) }));
+}
+
+export function suggestTags(
+  options: readonly TagOption[],
+  query: string,
+  existing: ReadonlySet<string>,
+) {
+  const limit = 16;
+  const needle = tagKey(query);
+  const prefixes: TagOption[] = [];
+  const partials: TagOption[] = [];
+  for (const option of options) {
+    if (existing.has(option.key)) continue;
+    if (option.key.startsWith(needle)) {
+      prefixes.push(option);
+      if (prefixes.length === limit) return prefixes;
+    } else if (partials.length < limit && option.key.includes(needle)) {
+      partials.push(option);
+    }
+  }
+  return prefixes.concat(partials.slice(0, limit - prefixes.length));
+}

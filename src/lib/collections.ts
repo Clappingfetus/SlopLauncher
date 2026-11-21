@@ -1,5 +1,5 @@
 import type { Game, GameCollection, CollectionRule } from "./types";
-import { groupGames, groupOptions, validateGroups } from "./grouping";
+import { collectGroupMemberIds, groupOptions, validateGroups } from "./grouping";
 export function validateCollectionRule(rule: CollectionRule): CollectionRule {
   if (
     !rule ||
@@ -23,11 +23,11 @@ export function collectionMembers(
   games: Game[],
   now = Date.now(),
 ): string[] {
-  return collection.rule
-    ? (groupGames(games, collection.rule.mode, collection.rule.groups, now)
-        .find((g) => g.id === collection.rule!.groupId)
-        ?.games.map((g) => g.id) ?? [])
-    : collection.gameIds;
+  if (!collection.rule) return collection.gameIds;
+  const { mode, groups, groupId } = collection.rule;
+  const members: string[] = [];
+  collectGroupMemberIds(games, mode, groups, now, new Map([[groupId, members]]));
+  return members;
 }
 export function resolveCollections(
   collections: GameCollection[],
@@ -35,24 +35,30 @@ export function resolveCollections(
   now = Date.now(),
 ): GameCollection[] {
   // Several live collections can select different buckets from the same rule
-  // set. Evaluate that set once per resolution, but never cache across library
-  // snapshots or clock changes (relative-date rules must keep moving).
-  const matches = new Map<string, Map<string, string[]>>();
-  return collections.map((c) => {
-    if (!c.rule) return c;
-    const key = JSON.stringify([c.rule.mode, c.rule.groups]);
-    let buckets = matches.get(key);
-    if (!buckets) {
-      buckets = new Map(
-        groupGames(games, c.rule.mode, c.rule.groups, now).map((g) => [
-          g.id,
-          g.games.map((game) => game.id),
-        ]),
-      );
-      matches.set(key, buckets);
+  // set. Collect only the requested buckets in one pass per rule set.
+  const requests = new Map<
+    string,
+    { rule: CollectionRule; members: Map<string, string[]> }
+  >();
+  const resolved = collections.map((collection) => {
+    const { rule } = collection;
+    if (!rule) return collection;
+    const key = JSON.stringify([rule.mode, rule.groups]);
+    let request = requests.get(key);
+    if (!request) {
+      request = { rule, members: new Map() };
+      requests.set(key, request);
     }
-    return { ...c, gameIds: buckets.get(c.rule.groupId) ?? [] };
+    let gameIds = request.members.get(rule.groupId);
+    if (!gameIds) {
+      gameIds = [];
+      request.members.set(rule.groupId, gameIds);
+    }
+    return { ...collection, gameIds };
   });
+  for (const { rule, members } of requests.values())
+    collectGroupMemberIds(games, rule.mode, rule.groups, now, members);
+  return resolved;
 }
 export type CollectionFilter = `collection:${string}`;
 export function isCollectionFilter(value: string): value is CollectionFilter {
@@ -122,14 +128,19 @@ export function withoutGame(collections: GameCollection[], gameId: string) {
       : c,
   );
 }
-export function collectionCounts(collections: GameCollection[], games: Game[]) {
-  const live = new Set(games.map((g) => g.id));
-  return new Map(
-    collections.map((c) => [
-      c.id,
-      new Set(c.gameIds.filter((id) => live.has(id))).size,
-    ]),
-  );
+export function collectionCounts(
+  collections: GameCollection[],
+  isVisible: (id: string) => boolean,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const collection of collections) {
+    const visible = new Set<string>();
+    for (const id of collection.gameIds) {
+      if (isVisible(id)) visible.add(id);
+    }
+    counts.set(collection.id, visible.size);
+  }
+  return counts;
 }
 
 // Both menu and drag actions validate current objects; a game or folder can
@@ -140,14 +151,37 @@ export function addCollectionGame(
   gameId: string,
   games: Game[],
 ) {
+  return addCollectionGames(collections, collectionId, [gameId], (id) =>
+    games.some((g) => g.id === id),
+  ).collections;
+}
+
+export function addCollectionGames(
+  collections: GameCollection[],
+  collectionId: string,
+  gameIds: readonly string[],
+  hasGame: (id: string) => boolean,
+): { collections: GameCollection[]; addedCount: number } {
+  if (!gameIds.length) return { collections, addedCount: 0 };
   const collection = collections.find((c) => c.id === collectionId);
-  if (!collection || !games.some((g) => g.id === gameId))
+  if (!collection || gameIds.some((id) => !hasGame(id)))
     throw Error("This game or collection is no longer available.");
   if (collection.rule)
     throw Error(
       "This collection follows automatic rules. Edit its rules to change the games it includes.",
     );
-  return collection.gameIds.includes(gameId)
-    ? collections
-    : setMembership(collections, collectionId, gameId, true);
+  if (gameIds.length === 1 && collection.gameIds.includes(gameIds[0]))
+    return { collections, addedCount: 0 };
+  const members = new Set(collection.gameIds);
+  const originalSize = members.size;
+  for (const id of gameIds) members.add(id);
+  const addedCount = members.size - originalSize;
+  return {
+    collections: addedCount
+      ? collections.map((c) =>
+          c === collection ? { ...c, gameIds: [...members] } : c,
+        )
+      : collections,
+    addedCount,
+  };
 }

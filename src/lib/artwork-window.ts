@@ -2,7 +2,7 @@ import type { Game } from "./types";
 import type { ArtworkRequest } from "./artwork-loader";
 import type { GridRow } from "./grid-layout";
 export function artworkRowsWindow(
-  rows: GridRow[],
+  getRow: (index: number) => GridRow | undefined,
   first: number,
   last: number,
   direction: number,
@@ -15,7 +15,7 @@ export function artworkRowsWindow(
   let bytes = 0;
   const budget = 48 * 1024 * 1024;
   const row = (index: number, priority: number) => {
-    for (const game of rows[index]?.games ?? []) {
+    for (const game of getRow(index)?.games ?? []) {
       const url = game.cover;
       const thumbnail = priority === 0 ? size : Math.min(size, 256);
       const cost = thumbnail * thumbnail * 1.5 * 4;

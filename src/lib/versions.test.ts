@@ -3,6 +3,7 @@ import {
   versionLibrary,
   createVersionResolver,
   gameContextIdentity,
+  versionOptions,
 } from "./versions";
 import { filterGames, preferredCopy } from "./library";
 import { identity } from "./enrichment-identity";
@@ -10,6 +11,7 @@ import type { Game, Settings, Source } from "./types";
 import { defaultSettings } from "./types";
 import {
   changeDuplicateFlag,
+  changeDuplicateFlags,
   reconcileDuplicateFlags,
 } from "./duplicate-flags";
 const game = (
@@ -53,6 +55,31 @@ describe("reversible duplicate versions", () => {
       expect(index.count(list)).toBe(expected);
       expect(index.count(list.slice(1))).toBe(index.collapse(list.slice(1)).length);
       expect(versionLibrary(list, settings, false).count(list)).toBe(list.length);
+    }
+  });
+  it("counts hidden, favorite and installed entries independently across copy groups", () => {
+    const visible = game("1", "epic");
+    const hidden = { ...game("2", "gog"), hidden: true, favorite: true };
+    const standalone = { ...game("3", "steam", "Separate Adventure"), favorite: true };
+    const rematched = { ...hidden, title: "Island Adventure" };
+    for (const [list, expected] of [
+      [[visible, standalone], { library: 2, hidden: 0, favorites: 1, installed: 1 }],
+      [[visible, standalone, hidden], { library: 2, hidden: 1, favorites: 2, installed: 2 }],
+      [[visible, standalone, rematched], { library: 3, hidden: 1, favorites: 2, installed: 2 }],
+      [[standalone, rematched], { library: 2, hidden: 1, favorites: 2, installed: 2 }],
+    ] as const) {
+      const games = [...list];
+      const index = versionLibrary(games, settings);
+      expect(index.counts(games, true)).toEqual(expected);
+      const shown = games.filter((entry) => !entry.hidden);
+      expect(index.counts(games, false)).toEqual({
+        library: shown.length,
+        hidden: expected.hidden,
+        favorites: 1,
+        installed: 1,
+      });
+      const separate = versionLibrary(games, { ...settings, hideDuplicateGames: false });
+      expect(separate.counts(games, true)).toEqual({ ...expected, library: games.length });
     }
   });
   it("matches punctuation and ampersand variants without stripping edition or sequel words", () => {
@@ -192,6 +219,45 @@ describe("reversible duplicate versions", () => {
     expect(resolve(games, settings).collapse(games)).toHaveLength(2);
     expect(resolve(games.slice(1), settings).versions("1")).toEqual([]);
   });
+  it("does not carry a removed member's catalog facts into the next index", () => {
+    const resolve = createVersionResolver();
+    const steam = game("1", "steam");
+    const original = game("2", "gog");
+    const replacement = game("3", "gog");
+    expect(resolve([steam, original], settings).members(steam.id)).toEqual([
+      steam,
+      original,
+    ]);
+    expect(resolve([steam, replacement], settings).members(steam.id)).toEqual([
+      steam,
+      replacement,
+    ]);
+  });
+  it("identifies same-source choices by path and scopes copy IDs to their game", () => {
+    const first = game("1", "manual");
+    const second = game("2", "manual");
+    const a = { ...first.copies[0], id: "local", executable: "C:/QA/First.exe" };
+    const b = { ...second.copies[0], id: "local", executable: "C:/QA/Second.exe" };
+    const options = versionOptions([
+      { game: first, copy: a },
+      { game: second, copy: b },
+      { game: second, copy: { ...b, id: "offline", available: false } },
+    ]);
+    expect(options.map(({ label }) => label)).toEqual([
+      "First.exe · Manually added · Installed",
+      "Second.exe · Manually added · Installed",
+      "Manually added · Unavailable",
+    ]);
+    expect(new Set(options.map(({ key }) => key)).size).toBe(3);
+    const sharedFilename = versionOptions([
+      { game: first, copy: a },
+      { game: second, copy: { ...b, executable: "D:\\Backup\\First.exe" } },
+    ]);
+    expect(sharedFilename.map(({ label }) => label)).toEqual([
+      "First.exe · Manually added · Installed · C:/QA/First.exe",
+      "First.exe · Manually added · Installed · D:\\Backup\\First.exe",
+    ]);
+  });
   it("honors multi-copy choices without changing enrichment fingerprints and reuses singleton game objects", () => {
     const g = game("1", "steam");
     g.copies.push({ ...game("2", "gog").copies[0] });
@@ -312,6 +378,52 @@ describe("shared duplicate preferences", () => {
       game(String(i), "steam", `Title ${i}`),
     );
     expect(reconcileDuplicateFlags(games, index(games)).games).toBe(games);
+  });
+  it("advances each selected group's flag clock once, preserving the choice on late rematches", () => {
+    const steam = {
+      ...game("1", "steam"),
+      favorite: true,
+      favoriteUpdatedAt: 200,
+    };
+    const gog = { ...game("2", "gog"), favorite: true, favoriteUpdatedAt: 201 };
+    const other = game("3", "steam", "Different");
+    const games = [steam, gog, other];
+    const changed = changeDuplicateFlags(
+      games,
+      index(games),
+      [steam.id, gog.id, "removed", other.id],
+      "favorite",
+      false,
+      100,
+    );
+    expect(changed.updates).toEqual([
+      { id: steam.id, favorite: false, favoriteUpdatedAt: 202 },
+      { id: gog.id, favorite: false, favoriteUpdatedAt: 202 },
+      { id: other.id, favorite: false, favoriteUpdatedAt: 100 },
+    ]);
+    expect(changed.games[1].notes).toBe(gog.notes);
+    expect(changed.games[1].copies).toBe(gog.copies);
+
+    const late = {
+      ...game("4", "epic", "Unmatched"),
+      favorite: true,
+      favoriteUpdatedAt: 201,
+    };
+    const unmatched = [...changed.games, late];
+    expect(reconcileDuplicateFlags(unmatched, index(unmatched)).games).toBe(
+      unmatched,
+    );
+    const rematched = [...changed.games, { ...late, title: steam.title }];
+    const reconciled = reconcileDuplicateFlags(rematched, index(rematched)).games;
+    expect(reconciled[3]).toMatchObject({
+      notes: late.notes,
+      favorite: false,
+      favoriteUpdatedAt: 202,
+    });
+    const remaining = reconciled.slice(1);
+    expect(reconcileDuplicateFlags(remaining, index(remaining)).games).toBe(
+      remaining,
+    );
   });
 });
 

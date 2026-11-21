@@ -4,8 +4,8 @@ import type { Game, ProviderId, ProviderStatus } from "./types";
 import { presentGame, currentResult, steamId } from "./enrichment";
 import { isEmulated } from "./artwork";
 
-export function missingFields(game: Game) {
-  if (game.metadataLocked) return [];
+export function missingFields(game: Game, { includeLocked = false } = {}) {
+  if (game.metadataLocked && !includeLocked) return [];
   return [
     !game.cover?.trim() && "box art",
     !game.hero?.trim() && "background",

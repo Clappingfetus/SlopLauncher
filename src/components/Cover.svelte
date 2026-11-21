@@ -15,11 +15,13 @@
     hero = false,
     thumbnail = 0,
     priority = 0,
+    preview,
   }: {
     game: Game;
     hero?: boolean;
     thumbnail?: number;
     priority?: number;
+    preview?: string;
   } = $props();
   let failure = $state("");
   let resolved = $state({ key: "", src: "" });
@@ -29,7 +31,7 @@
     identity: "",
     urls: [],
   });
-  let candidates = $derived([
+  let candidates = $derived(preview ? [preview] : [
     ...new Set(
       [
         hero ? game.hero : game.cover,
@@ -125,5 +127,6 @@
       rejectCurrent();
     }}
   />{:else}<div class="cover-fallback" class:loading-art={url && !failed}>
-    <Gamepad2 size={hero ? 48 : 28} strokeWidth={1} /><span>{game.title}</span>
+    <Gamepad2 size={hero ? 48 : 28} strokeWidth={1} />
+    <span>{preview && !url ? "Preview unavailable" : game.title}</span>
   </div>{/if}

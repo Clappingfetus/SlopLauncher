@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import {
     Plus,
     Trash2,
-    Sparkles,
     Tags,
     HardDrive,
     CalendarDays,
@@ -26,13 +25,14 @@
     fields,
     operators,
     defaultCondition,
-    groupGames,
+    createSmartGroupPreview,
     validateGroups,
   } from "../lib/grouping";
   import {
     smartCollectionValue,
     legacySmartCollection,
   } from "../lib/smart-collections";
+  import { libraryTags, suggestTags, tagKey, tagOptions } from "../lib/tags";
   let {
     initial,
     games,
@@ -68,6 +68,8 @@
   );
   let error = $state("");
   let deleting = $state(false);
+  let form = $state<HTMLFormElement>();
+  const previewLimit = 8;
   const icons = {
     tags: Tags,
     size: HardDrive,
@@ -88,45 +90,51 @@
     rating:
       "Consensus score from 1–10, before half-star rounding. Unrated games match only ‘Is unknown’.",
   };
-  let checked = $derived.by(() => {
+  let previewRules = $derived.by(() => {
     if (!rule.conditions.length)
-      return {
-        valid: false,
-        games: [] as Game[],
-        reason: "Add a rule to begin.",
-      };
+      return { rules: null, reason: "Add a rule to begin." };
     try {
-      const previewGroup = { ...rule, name: name.trim() || "New collection" };
+      const previewGroup = { ...rule, name: "this collection" };
       const rules = base?.rule?.groups.length
         ? base.rule.groups.map((g) =>
             g.id === rule.id ? { ...previewGroup, name: g.name } : g,
           )
         : [previewGroup];
-      validateGroups(rules);
+      return { rules: validateGroups(rules), reason: "" };
+    } catch (e) {
       return {
-        valid: true,
-        games:
-          groupGames(games, "smart", rules, now).find(
-            (g) => g.id === `smart:${rule.id}`,
-          )?.games ?? [],
-        reason: "",
-      };
-    } catch {
-      return {
-        valid: false,
-        games: [] as Game[],
-        reason: "Finish the rule values to see matching games.",
+        rules: null,
+        reason: e instanceof Error ? e.message : "Review the rule values.",
       };
     }
   });
-  let tags = $derived(
-    [...new Set(games.flatMap((g) => [...g.genres, ...(g.tags ?? [])]))]
-      .sort((a, b) => a.localeCompare(b))
-      .slice(0, 200),
+  let buildPreview = $derived(createSmartGroupPreview(games, now));
+  let preview = $derived(
+    previewRules.rules
+      ? buildPreview(previewRules.rules, rule.id, previewLimit)
+      : null,
   );
-  function add(field: RuleField) {
-    rule.conditions = [...rule.conditions, defaultCondition(field)];
+  let tags = $derived(
+    tagOptions(libraryTags(games).filter((label) => !label.includes(","))),
+  );
+  function ruleTagSuggestions(value: string) {
+    // Keep the existing comma-separated terms when completing the last tag.
+    const prefix = value.slice(0, value.lastIndexOf(",") + 1);
+    const tail = value.slice(prefix.length);
+    const spacing = tail.match(/^\s*/)?.[0] ?? "";
+    const existing = new Set(prefix.split(",").map(tagKey));
+    return suggestTags(tags, tail, existing).map(
+      ({ label }) => prefix + spacing + label,
+    );
+  }
+  async function add(field: RuleField) {
+    const first = !rule.conditions.length;
+    const condition = defaultCondition(field);
+    rule.conditions = [...rule.conditions, condition];
     error = "";
+    await tick();
+    const row = form?.querySelector(`[data-condition-id="${condition.id}"]`);
+    row?.querySelector<HTMLElement>(first ? "input" : "select")?.focus();
   }
   function reuse(index: number) {
     try {
@@ -157,18 +165,7 @@
   }
 </script>
 
-<form class="smart-collection-editor" onsubmit={save}>
-  <div class="smart-intro">
-    <span class="smart-emblem"><Sparkles size={22} /></span>
-    <div>
-      <strong>Choose rules for your collection.</strong>
-      <p>
-        Choose what belongs. Matching games join automatically as your library
-        changes.
-      </p>
-    </div>
-    <span class="live-badge"><span></span>Live collection</span>
-  </div>
+<form bind:this={form} class="smart-collection-editor" onsubmit={save}>
   <div class="smart-workspace">
     <div class="smart-builder">
       <label class="collection-name"
@@ -184,7 +181,7 @@
       <div class="rule-heading">
         <div>
           <h3>Rules</h3>
-          <p>Combine the things you care about.</p>
+          <p>Membership updates as your library changes.</p>
         </div>
         {#if rule.conditions.length}<label class="match-mode"
             >Match<select
@@ -222,6 +219,7 @@
                 ))}
             <section
               class="condition-card"
+              data-condition-id={condition.id}
               aria-label={`Rule ${ruleIndex + 1}`}
             >
               <div class="condition-heading">
@@ -253,57 +251,70 @@
                     >{/each}</select
                 >
                 {#if !["known", "unknown"].includes(condition.op)}
-                  <input
-                    aria-label="Rule value"
-                    list={condition.field === "tags"
-                      ? "smart-collection-tags"
-                      : undefined}
-                    type={condition.field === "tags"
-                      ? "text"
-                      : date
-                        ? "date"
-                        : "number"}
-                    min={date
-                      ? undefined
-                      : condition.field === "rating"
-                        ? 1
-                        : 0}
-                    max={date
-                      ? undefined
-                      : condition.field === "rating"
-                        ? 10
-                        : 1000000}
-                    step={date ? undefined : "any"}
-                    placeholder={condition.field === "tags"
-                      ? "Tags, separated by commas"
-                      : condition.field === "size"
-                        ? "GiB"
-                        : condition.field === "rating"
-                          ? "Score / 10"
-                          : condition.field === "hltb"
-                            ? "Hours"
-                            : "Days"}
-                    value={condition.value ?? ""}
-                    oninput={(event) =>
-                      (condition.value = event.currentTarget.value)}
-                    required
-                  />
-                  {#if condition.op === "between"}<span class="muted">to</span
-                    ><input
-                      aria-label="Rule upper value"
-                      max={condition.field === "rating" ? 10 : undefined}
-                      type={date ? "date" : "number"}
+                  <div
+                    class="rule-values"
+                    class:range={condition.op === "between"}
+                  >
+                    <input
+                      aria-label="Rule value"
+                      list={condition.field === "tags"
+                        ? `smart-collection-tags-${condition.id}`
+                        : undefined}
+                      type={condition.field === "tags"
+                        ? "text"
+                        : date
+                          ? "date"
+                          : "number"}
                       min={date
                         ? undefined
                         : condition.field === "rating"
                           ? 1
                           : 0}
+                      max={date
+                        ? undefined
+                        : condition.field === "rating"
+                          ? 10
+                          : 1000000}
                       step={date ? undefined : "any"}
-                      value={condition.upper ?? ""}
+                      placeholder={condition.field === "tags"
+                        ? "Tags, separated by commas"
+                        : condition.field === "size"
+                          ? "GiB"
+                          : condition.field === "rating"
+                            ? "Score / 10"
+                            : condition.field === "hltb"
+                              ? "Hours"
+                              : "Days"}
+                      value={condition.value ?? ""}
                       oninput={(event) =>
-                        (condition.upper = event.currentTarget.value)}
+                        (condition.value = event.currentTarget.value)}
                       required
-                    />{/if}
+                    />
+                    {#if condition.field === "tags"}
+                      <datalist id={`smart-collection-tags-${condition.id}`}>
+                        {#each ruleTagSuggestions(condition.value ?? "") as value (value)}
+                          <option {value}></option>
+                        {/each}
+                      </datalist>
+                    {/if}
+                    {#if condition.op === "between"}<span aria-hidden="true"
+                        >to</span
+                      ><input
+                        aria-label="Rule upper value"
+                        max={condition.field === "rating" ? 10 : undefined}
+                        type={date ? "date" : "number"}
+                        min={date
+                          ? undefined
+                          : condition.field === "rating"
+                            ? 1
+                            : 0}
+                        step={date ? undefined : "any"}
+                        value={condition.upper ?? ""}
+                        oninput={(event) =>
+                          (condition.upper = event.currentTarget.value)}
+                        required
+                      />{/if}
+                  </div>
                   {#if condition.field !== "tags" && !date}<span
                       class="rule-unit"
                       >{condition.field === "size"
@@ -353,44 +364,39 @@
     </div>
     <aside class="smart-preview" aria-label="Collection preview">
       <div class="preview-heading">
-        <span><FolderHeart size={17} />Live preview</span><span
-          class="preview-count"
-          aria-live="polite">{checked.valid ? checked.games.length : "—"}</span
-        >
+        <span><FolderHeart size={17} />Live preview</span>
       </div>
-      {#if !checked.valid}<div class="preview-empty">
+      {#if !preview}<div class="preview-empty">
           <Gamepad2 size={30} strokeWidth={1} /><strong
-            >Your collection starts here</strong
+            >{rule.conditions.length
+              ? "Check the rules"
+              : "No rules yet"}</strong
           >
-          <p>{checked.reason}</p>
+          <p>{previewRules.reason}</p>
         </div>
-      {:else if !checked.games.length}<div class="preview-empty">
+      {:else if !preview.count}<div class="preview-empty">
           <Check size={28} strokeWidth={1} /><strong>No matches yet</strong>
           <p>
             You can still save this collection. Future matches will join
             automatically.
           </p>
         </div>
-      {:else}<p class="preview-caption">
-          {checked.games.length} matching {checked.games.length === 1
-            ? "game"
-            : "games"} in your library
-        </p>
-        <div class="preview-games">
-          {#each checked.games.slice(0, 8) as game (game.id)}<div
-              class="preview-game"
-            >
+      {:else}
+        <div class="preview-games" role="region" aria-label="Sample matches">
+          {#each preview.sample as game (game.id)}<div class="preview-game">
               <span class="preview-game-icon"><Gamepad2 size={15} /></span><span
                 ><strong>{game.title}</strong><small
                   >{[
-                    ...new Set(game.copies.map((c) => sourceNames[c.source])),
+                    ...new Set(
+                      game.copies.map((c) => sourceNames[c.source] ?? c.source),
+                    ),
                   ].join(" · ")}</small
                 ></span
               >
             </div>{/each}
         </div>
-        {#if checked.games.length > 8}<p class="preview-more">
-            +{checked.games.length - 8} more games
+        {#if preview.count > preview.sample.length}<p class="preview-more">
+            +{(preview.count - preview.sample.length).toLocaleString()} more
           </p>{/if}{/if}
       <p class="preview-note">
         Matches your whole library. Search and page filters do not limit this
@@ -398,10 +404,14 @@
       </p>
     </aside>
   </div>
-  <datalist id="smart-collection-tags"
-    >{#each tags as tag}<option value={tag}></option>{/each}</datalist
-  >
   <footer class="smart-footer">
+    <span class="match-count" role="status" aria-atomic="true">
+      {#if preview}
+        {preview.count.toLocaleString()} matching {preview.count === 1
+          ? "game"
+          : "games"}
+      {/if}
+    </span>
     {#if start && ondelete}<div>
         {#if deleting}<button
             type="button"
@@ -417,14 +427,14 @@
             onclick={() => (deleting = true)}
             ><Trash2 size={14} />Delete collection</button
           >{/if}
-      </div>{:else}<span><Sparkles size={13} />Updates automatically</span>{/if}
+      </div>{/if}
     <div>
       <button type="button" class="secondary-button" onclick={oncancel}
         >Cancel</button
       ><button
         type="submit"
         class="primary-button"
-        disabled={!name.trim() || !checked.valid}
+        disabled={!name.trim() || !preview}
         >{start ? "Save collection" : "Create collection"}<ArrowRight
           size={14}
         /></button
@@ -434,51 +444,6 @@
 </form>
 
 <style>
-  .smart-intro {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin: 6px 0 26px;
-  }
-  .smart-emblem {
-    display: grid;
-    place-items: center;
-    width: 46px;
-    height: 46px;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    color: var(--accent);
-    background: var(--surface);
-    flex-shrink: 0;
-  }
-  .smart-intro strong {
-    font-size: 14px;
-    font-weight: 600;
-  }
-  .smart-intro p {
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--muted);
-    margin: 5px 0 0;
-  }
-  .live-badge {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-    color: var(--muted);
-    font-size: 10px;
-    border: 1px solid var(--line);
-    border-radius: 20px;
-    padding: 6px 9px;
-  }
-  .live-badge > span {
-    width: 5px;
-    height: 5px;
-    background: var(--accent);
-    border-radius: 50%;
-  }
   .smart-workspace {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 280px;
@@ -619,15 +584,6 @@
     gap: 9px;
     align-items: center;
   }
-  .condition-controls select,
-  .condition-controls select,
-  .match-mode select {
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    min-height: 35px;
-  }
   .condition-controls input {
     width: 100%;
     min-width: 0;
@@ -643,16 +599,27 @@
     border-radius: 6px;
     min-height: 35px;
   }
-  .condition-controls input {
-    grid-column: 1/-1;
+  .rule-values {
+    grid-column: 1 / -1;
+  }
+  .rule-values.range {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 9px;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .rule-values.range input {
+    margin-top: 0;
+  }
+  .rule-values > span {
+    color: var(--muted);
+    font-size: 11px;
   }
   .condition-controls > button {
     grid-row: 1;
     grid-column: 3;
     padding: 5px;
-  }
-  .condition-controls > .muted {
-    font-size: 10px;
   }
   .condition-controls .rule-unit {
     font-size: 10px;
@@ -679,7 +646,7 @@
   }
   .smart-preview {
     position: sticky;
-    top: 0;
+    top: 56px;
     border: 1px solid var(--line);
     border-radius: 12px;
     background: var(--bg);
@@ -700,16 +667,6 @@
   }
   .preview-heading :global(svg) {
     color: var(--accent);
-  }
-  .preview-count {
-    color: var(--accent);
-    font-variant-numeric: tabular-nums;
-    background: var(--surface);
-    border-radius: 6px;
-    min-width: 29px;
-    padding: 4px 6px;
-    text-align: center;
-    font-size: 12px;
   }
   .preview-empty {
     display: flex;
@@ -732,13 +689,14 @@
     line-height: 1.7;
     margin: 0;
   }
-  .preview-caption {
-    font-size: 10px;
-    color: var(--muted);
-    margin: 14px 16px 8px;
-  }
   .preview-games {
     padding: 0 16px;
+    max-height: clamp(153px, calc(100vh - 385px), 408px);
+    overflow-y: auto;
+  }
+  .preview-games:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .preview-game {
     display: flex;
@@ -830,12 +788,11 @@
     border-top: 1px solid var(--line);
     z-index: 1;
   }
-  .smart-footer > span {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--faint);
-    font-size: 10px;
+  .match-count {
+    margin-inline-end: auto;
+    color: var(--text);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
   .smart-footer > div {
     display: flex;
@@ -854,14 +811,8 @@
     .preview-empty {
       min-height: 130px;
     }
-    .live-badge {
-      display: none;
-    }
-    .smart-footer > span {
-      display: none;
-    }
     .smart-footer {
-      justify-content: flex-end;
+      flex-wrap: wrap;
     }
     .smart-footer > div {
       flex-wrap: wrap;

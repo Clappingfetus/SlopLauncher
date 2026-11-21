@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeTags, tagKey, libraryTags } from "./tags";
+import { mergeTags, tagKey, libraryTags, suggestTags, tagOptions } from "./tags";
 import { gameTags, identity, presentGame } from "./enrichment";
 import { filterGames, mergeOwnedLibrary, mergeDiscovered } from "./library";
 import { demoGames } from "./demo";
@@ -119,5 +119,22 @@ describe("game tags", () => {
     expect(libraryTags(games)).toHaveLength(401);
     const future = { ...game(), id: "future", tags: ["Future arrival"] };
     expect(libraryTags([...games, future])).toContain("Future arrival");
+  });
+  it("bounds autocomplete and finds current prefix and substring matches beyond its initial suggestions", () => {
+    const matching = { ...game(), tags: ["Super Arcade", "Arcade Classics"] };
+    const games = Array.from({ length: 400 }, (_, i) => ({
+      ...game(),
+      tags: [`00 Category ${i}`],
+    }));
+    const options = tagOptions(libraryTags([...games, matching]));
+    const existing = new Set(["rpg"]);
+    expect(suggestTags(options, "", existing)).toHaveLength(16);
+    expect(suggestTags(options, "ＡＲＣＡＤＥ", existing).map((tag) => tag.label))
+      .toEqual(["Arcade Classics", "Super Arcade"]);
+    existing.add("arcade classics");
+    expect(suggestTags(options, "arcade", existing).map((tag) => tag.label))
+      .toEqual(["Super Arcade"]);
+    expect(suggestTags(tagOptions(libraryTags(games)), "arcade", existing))
+      .toEqual([]);
   });
 });

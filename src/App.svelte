@@ -3,6 +3,7 @@
   import { releaseLabel, exactReleaseDate } from "./lib/release-date";
   import {
     baselineMetadata,
+    discoveryIdentity,
     metadataAttemptPatch,
     needsDiscovery,
     recordMetadataAttempt,
@@ -52,16 +53,26 @@
   } from "@lucide/svelte";
   import Cover from "./components/Cover.svelte";
   import HomeScreen from "./components/HomeScreen.svelte";
-  import { buildHomeShelves, homeCollectionMembers, orderHomeShelves } from "./lib/home";
+  import {
+    createHomeShelfBuilder,
+    homeCollectionMembers,
+    orderHomeShelves,
+  } from "./lib/home";
   import VirtualGrid from "./components/VirtualGrid.svelte";
   import SmartCollectionEditor from "./components/SmartCollectionEditor.svelte";
   import { groupGames, groupOptions, validateGroups } from "./lib/grouping";
   import type { GroupMode, SmartGroup, Copy } from "./lib/types";
   import GameLinks from "./components/GameLinks.svelte";
-  import { createVersionResolver, gameContextIdentity } from "./lib/versions";
+  import {
+    createVersionResolver,
+    gameContextIdentity,
+    versionKey,
+    versionOptions,
+  } from "./lib/versions";
   import { reconcileStoreTitles } from "./lib/store-titles";
   import {
     changeDuplicateFlag,
+    changeDuplicateFlags,
     reconcileDuplicateFlags,
   } from "./lib/duplicate-flags";
   import { InstallationWatch } from "./lib/installation-watch";
@@ -97,6 +108,7 @@
     saveCollection,
     setMembership,
     addCollectionGame,
+    addCollectionGames,
     withoutGame,
     collectionCounts,
     resolveCollections,
@@ -108,7 +120,8 @@
   } from "./lib/emulation";
   import { applyTheme, resolveTheme, type ThemeId } from "./lib/themes";
   import GameTags from "./components/GameTags.svelte";
-  import { libraryTags, tagKey } from "./lib/tags";
+  import OptionPicker from "./components/OptionPicker.svelte";
+  import { libraryTags, tagKey, tagOptions } from "./lib/tags";
   import CompletionTimes from "./components/CompletionTimes.svelte";
   import SetupWizard from "./components/SetupWizard.svelte";
   import ProviderSettings from "./components/ProviderSettings.svelte";
@@ -145,6 +158,7 @@
     preferredCopy,
     type Filter,
   } from "./lib/library";
+  import { narrowGameSearch, searchIndex, searchText, searchWords } from "./lib/search-index";
   import { demoGames } from "./lib/demo";
   import * as api from "./lib/backend";
   import { sourceIcons } from "./lib/source-icons";
@@ -236,7 +250,8 @@
     busy = $state(""),
     toast = $state(""),
     toastError = $state(false),
-    scanMessages = $state<string[]>([]);
+    scanMessages = $state<string[]>([]),
+    scanSummary = $state<{ text: string; error?: boolean }>();
   let modal = $state<
       | "add"
       | "metadata"
@@ -249,10 +264,15 @@
       | "collection"
       | "artwork"
       | "grouping"
+      | "jump-group"
+      | "tags"
       | null
     >(null),
     dialog: HTMLDialogElement;
   let searchInput = $state<HTMLInputElement>();
+  let libraryTitle = $state<HTMLHeadingElement>();
+  let detailsTitle = $state<HTMLHeadingElement>();
+  let filtersToggle = $state<HTMLButtonElement>();
   let addMode = $state<"pc" | "emulated">("pc");
   let addTitle = $state(""),
     addPath = $state(""),
@@ -263,8 +283,12 @@
     screenshotIndex = $state(0);
   let toastTimer: ReturnType<typeof setTimeout>;
   let metadataQuery = $state(""),
-    metadataResults = $state<{ appId: number; title: string }[]>([]),
-    metadataSearched = $state(false);
+    metadataSearchResult = $state.raw<{
+      scope: string;
+      outcome:
+        | { matches: Awaited<ReturnType<typeof api.searchMetadata>> }
+        | { error: string };
+    }>();
   let persistence = Promise.resolve();
   let libraryEpoch = 0,
     metadataRequest = 0;
@@ -286,6 +310,15 @@
   );
   let sourceCounts = $derived(countGamesBySource(browsableGames));
   let gameIndex = $derived(new Map(games.map((g) => [g.id, g])));
+  let metadataSearchScope = $derived.by(() => {
+    const game = selectedId && gameIndex.get(selectedId);
+    return game ? JSON.stringify([discoveryIdentity(game), metadataQuery.trim()]) : "";
+  });
+  let metadataSearchOutcome = $derived(
+    metadataSearchResult?.scope === metadataSearchScope
+      ? metadataSearchResult?.outcome
+      : undefined,
+  );
   let artworkRequests = $state<string[]>([]);
   let artworkGame = $derived(selectedId ? gameIndex.get(selectedId) : undefined);
   let providers = $state<ProviderStatus>({
@@ -423,6 +456,15 @@
   let steamAchievementAccount = $derived(
     accountStates.find((a) => a.source === "steam"),
   );
+  let steamHistoryConnection: "connected" | "disconnected" | "reconnect" = $derived(
+    demoMode
+      ? "disconnected"
+      : steamAchievementAccount?.reconnectRequired
+        ? "reconnect"
+        : steamAchievementAccount?.connected
+          ? "connected"
+          : "disconnected",
+  );
   let artworkDownloads = $state(0);
   const accountManager = new AccountManager(api, {
     syncHours: () => settings.librarySyncHours,
@@ -474,6 +516,7 @@
   let selectedVersions = $derived(
     selectedId ? versionsIndex.versions(selectedId) : [],
   );
+  let selectedVersionOptions = $derived(versionOptions(selectedVersions));
   let contextMenu = $state.raw<{
     gameId: string;
     copyId?: string;
@@ -512,13 +555,11 @@
       : presentedGames.filter((g) => !g.hidden),
   );
   let collapsedBrowsable = $derived(versionsIndex.collapse(browsablePresented));
-  let hiddenCount = $derived(
-    versionsIndex.count(presentedGames.filter((g) => g.hidden)),
+  let libraryCounts = $derived(
+    versionsIndex.counts(basePresentedGames, !!settings.showHiddenGames),
   );
-  let libraryCount = $derived(collapsedBrowsable.length);
-  let favoriteCount = $derived(
-    versionsIndex.count(browsablePresented.filter((g) => g.favorite)),
-  );
+  let hiddenCount = $derived(libraryCounts.hidden);
+  let favoriteCount = $derived(libraryCounts.favorites);
   let selected = $derived.by(() => {
     const game = selectedId ? gameIndex.get(selectedId) : undefined;
     return game
@@ -533,7 +574,13 @@
           )
       : undefined;
   });
-  let clockTime = $state(Date.now());
+  let clockTick = $state(Date.now());
+  let clockTime = $derived.by(() => {
+    // A game can be added or played between periodic clock updates.
+    void games;
+    void clockTick;
+    return Date.now();
+  });
   let achievementProvider = $derived(
     selected && preferredCopy(selected)?.source === "emulated"
       ? ("retroachievements" as const)
@@ -562,27 +609,32 @@
   let resolvedCollections = $derived(
     resolveCollections(collections, presentedGames, clockTime),
   );
-  let folderCounts = $derived(
-    settings.hideDuplicateGames
-      ? new Map(
-          resolvedCollections.map((c) => [
-            c.id,
-            versionsIndex.count(
-              [...new Set(c.gameIds)]
-                .map((id) => gameIndex.get(id))
-                .filter(
-                  (g): g is Game =>
-                    !!g && (!!settings.showHiddenGames || !g.hidden),
-                ),
-            ),
-          ]),
-        )
-      : collectionCounts(resolvedCollections, browsableGames),
+  let folderCounts = $derived.by(() => {
+    const index = gameIndex;
+    const showHidden = settings.showHiddenGames;
+    if (!settings.hideDuplicateGames)
+      return collectionCounts(resolvedCollections, (id) => {
+        if (showHidden) return index.has(id);
+        const game = index.get(id);
+        return !!game && !game.hidden;
+      });
+    return new Map(
+      resolvedCollections.map((c) => [
+        c.id,
+        versionsIndex.count(
+          [...new Set(c.gameIds)]
+            .map((id) => index.get(id))
+            .filter((g): g is Game => !!g && (!!showHidden || !g.hidden)),
+        ),
+      ]),
+    );
+  });
+  let activeCollectionHasGames = $derived(
+    resolvedCollections
+      .find((c) => c.id === activeCollection?.id)
+      ?.gameIds.some((id) => gameIndex.has(id)) ?? false,
   );
-  let totalFolderCounts = $derived(
-    collectionCounts(resolvedCollections, games),
-  );
-  let matchingGames = $derived.by(() => {
+  let scopedGames = $derived.by(() => {
     const members = homeShelfFilter
       ? new Set(
           homeShelves
@@ -595,34 +647,49 @@
         ? presentedGames.filter((g) => members.has(g.id))
         : presentedGames,
       filter,
-      query,
+      "",
       installedOnly,
       tagFilter,
-      resolvedCollections,
+      isCollectionFilter(filter) ? resolvedCollections : undefined,
       !!settings.showHiddenGames,
       sourceFilter,
       activitySource,
     );
   });
-  let filtered = $derived(
-    sortGames(
-      settings.hideDuplicateGames
-        ? versionsIndex.collapse(matchingGames)
-        : matchingGames,
-      sort,
-      activitySource,
+  // Filtering a stable sort preserves order. Duplicate groups still need to
+  // choose their representative from the matching entries before sorting.
+  let orderedScope = $derived(
+    settings.hideDuplicateGames
+      ? scopedGames
+      : sortGames(scopedGames, sort, activitySource),
+  );
+  let queryWords = $derived(searchWords(query));
+  // A scope or indexed game edit replaces the search and its previous results.
+  let searchScope = $derived(
+    narrowGameSearch(
+      orderedScope.map((game) => ({ game, text: searchIndex(game).text })),
     ),
   );
+  let matchingGames = $derived(
+    queryWords.length ? searchScope(queryWords) : orderedScope,
+  );
+  let filtered = $derived(
+    settings.hideDuplicateGames
+      ? sortGames(versionsIndex.collapse(matchingGames), sort, activitySource)
+      : matchingGames,
+  );
   const homeScrolls = new Map<string, number>();
+  const buildHomeShelves = createHomeShelfBuilder();
   let detailsOrigin = $state<"home" | "library">("home");
   let homeGames = $derived.by(() => {
     if (!settings.hideDuplicateGames) return collapsedBrowsable;
     return collapsedBrowsable.map((g) => {
       const members = versionsIndex.members(g.id);
-      return {
-        ...g,
-        addedAt: Math.min(...members.map((m) => m.addedAt)),
-      };
+      const addedAt = members.reduce(
+        (oldest, member) => Math.min(oldest, member.addedAt),
+        g.addedAt,
+      );
+      return addedAt === g.addedAt ? g : { ...g, addedAt };
     });
   });
   let homeCollectionGames = $derived.by(() => {
@@ -633,22 +700,28 @@
     }
     return lists;
   });
+  let defaultHomeShelves = $derived(
+    buildHomeShelves(
+      homeGames,
+      resolvedCollections,
+      clockTime,
+      homeCollectionGames,
+    ),
+  );
   let homeShelves = $derived(
     orderHomeShelves(
-      buildHomeShelves(
-        homeGames,
-        resolvedCollections,
-        clockTime,
-        homeCollectionGames,
-      ),
+      defaultHomeShelves,
       settings.homeRowOrder,
     ),
+  );
+  let homeOrderChanged = $derived(
+    homeShelves.some((shelf, index) => shelf !== defaultHomeShelves[index]),
   );
   function showHome() {
     selectedId = null;
     page = "home";
     selectionMode = false;
-    selectionIds = new Set();
+    clearSelection();
     query = "";
     homeShelfFilter = null;
     window.history.replaceState({}, "");
@@ -658,11 +731,11 @@
     if (!demoMode) persistSettings();
   }
   function browseHomeShelf(id: string) {
-    if (id.startsWith("collection:")) {
-      navigate(id as Filter);
-      return;
-    }
-    navigate(id === "played" ? "recent" : "all");
+    const collection = isCollectionFilter(id);
+    navigate(collection ? id : id === "played" ? "recent" : "all");
+    installedOnly = false;
+    void tick().then(() => libraryTitle?.focus({ preventScroll: true }));
+    if (collection) return;
     if (id !== "activity") homeShelfFilter = id;
     sort =
       id === "added"
@@ -875,9 +948,10 @@
       busy = "";
     }
   }
-  function chooseVersion(copyId: string) {
-    const version = selectedVersions.find((v) => v.copy.id === copyId);
+  function chooseVersion(key: string) {
+    const version = selectedVersionOptions.find((v) => v.key === key);
     if (!version || !selectedId) return;
+    const copyId = version.copy.id;
     const choice = { gameId: version.game.id, copyId, selectedAt: Date.now() };
     const preferences = { ...settings.versionPreferences };
     for (const member of versionsIndex.members(selectedId))
@@ -906,6 +980,26 @@
           clockTime,
         ),
   );
+  let gridOrder = $derived(
+    grouped.length ? grouped.flatMap((group) => group.games) : filtered,
+  );
+  function groupSearchText(value: string) {
+    return searchText(value).trim().replace(/\s+/g, " ");
+  }
+  let groupOptionsForJump = $derived(
+    grouped.map((group) => ({
+      key: group.id,
+      label: group.name,
+      searchKey: groupSearchText(group.name),
+      count: group.games.length,
+    })),
+  );
+  let libraryGrid = $state<ReturnType<typeof VirtualGrid>>();
+  async function jumpToLibraryGroup(id: string) {
+    closeModal();
+    await tick();
+    await libraryGrid?.jumpToGroup(id);
+  }
   let enrichmentPolicy = $derived(
     JSON.stringify([
       steamAchievementAccount?.revision,
@@ -929,7 +1023,11 @@
     smartCollectionDraft = undefined;
     openModal("grouping");
   }
-  let tags = $derived(libraryTags(browsablePresented));
+  let tags = $derived(tagOptions(libraryTags(browsablePresented)));
+  let activeTag = $derived(
+    tagFilter ? tags.find((tag) => tag.key === tagFilter) : undefined,
+  );
+  let activeTagLabel = $derived(activeTag?.label ?? tagFilter);
   let failedCovers = $derived.by(() => {
     void $artworkCatalogState;
     return api.failedArtwork();
@@ -957,12 +1055,6 @@
                 ? "Hidden Games"
                 : sourceNames[filter],
   );
-  let installedCount = $derived(
-    versionsIndex.count(
-      browsablePresented.filter((g) => g.copies.some((c) => c.installed)),
-    ),
-  );
-
   async function openResource(url: string) {
     try {
       await api.openResource(url);
@@ -1234,7 +1326,41 @@
   let banishedGroups = $derived(groupedBanished(banishedGames));
   let libraryMutation = $state(false);
   let selectionMode = $state(false);
+  let onlySearchResult = $derived(
+    ready &&
+      !loadError &&
+      !libraryMutation &&
+      !selectionMode &&
+      queryWords.length &&
+      filtered.length === 1
+      ? filtered[0]
+      : undefined,
+  );
+  let selectionToggle = $state<HTMLButtonElement>();
+  let bulkGameAction = $state<HTMLSelectElement>();
   let selectionIds = $state.raw(new Set<string>());
+  let selectionAnchor = "";
+  function clearSelection() {
+    selectionIds = new Set();
+    selectionAnchor = "";
+  }
+  function finishSelecting() {
+    selectionMode = false;
+    clearSelection();
+    selectionToggle?.focus();
+  }
+  function selectAllShown() {
+    if (!filtered.length) return;
+    selectionIds = new Set(filtered.map((g) => g.id));
+    selectionAnchor = "";
+  }
+  let outOfViewSelectionCount = $derived.by(() => {
+    let count = selectionIds.size;
+    if (!count) return 0;
+    for (const game of filtered)
+      if (selectionIds.has(game.id) && --count === 0) return 0;
+    return count;
+  });
   let selectionHadGames = false;
   // An empty selection is useful when mode first opens; after a game has been
   // selected, clearing the final selection should return to normal browsing.
@@ -1247,9 +1373,9 @@
     else if (selectionHadGames) {
       selectionMode = false;
       selectionHadGames = false;
+      selectionAnchor = "";
     }
   });
-  let selectionAnchor = "";
   let banishTargets = $state.raw<string[]>([]);
   let contextActionIds = $derived(
     contextGame && selectionIds.has(contextGame.id) && selectionIds.size > 1
@@ -1260,55 +1386,61 @@
   );
   function selectGame(game: Game, event: MouseEvent) {
     selectionMode = true;
-    const next = new Set(selectionIds),
-      index = filtered.findIndex((g) => g.id === game.id),
-      anchor = filtered.findIndex((g) => g.id === selectionAnchor);
-    if (event.shiftKey && anchor >= 0 && index >= 0)
-      for (const g of filtered.slice(
-        Math.min(anchor, index),
-        Math.max(anchor, index) + 1,
-      ))
-        next.add(g.id);
-    else {
-      next.has(game.id) ? next.delete(game.id) : next.add(game.id);
-      selectionAnchor = game.id;
+    const next = new Set(selectionIds);
+    if (event.shiftKey && selectionAnchor) {
+      const index = gridOrder.findIndex((g) => g.id === game.id);
+      const anchor = gridOrder.findIndex((g) => g.id === selectionAnchor);
+      if (anchor >= 0 && index >= 0) {
+        const end = Math.max(anchor, index);
+        for (let i = Math.min(anchor, index); i <= end; i++)
+          next.add(gridOrder[i].id);
+        selectionIds = next;
+        return;
+      }
     }
+    next.has(game.id) ? next.delete(game.id) : next.add(game.id);
+    selectionAnchor = game.id;
     selectionIds = next;
+  }
+  function keepShownSelection() {
+    const shown = new Set<string>();
+    for (const game of filtered)
+      if (selectionIds.has(game.id)) shown.add(game.id);
+    if (!shown.has(selectionAnchor)) selectionAnchor = "";
+    selectionIds = shown;
+    bulkGameAction?.focus();
   }
   function bulkFlag(
     ids: string[],
     field: "favorite" | "hidden",
     value: boolean,
   ) {
-    const targets = new Set(
-      ids.flatMap((id) => versionsIndex.members(id).map((g) => g.id)),
+    const result = changeDuplicateFlags(
+      games,
+      versionsIndex,
+      ids,
+      field,
+      value,
     );
-    const at = Date.now();
-    games = games.map((g) =>
-      targets.has(g.id)
-        ? { ...g, [field]: value, [`${field}UpdatedAt`]: at }
-        : g,
-    );
-    persistFlags(
-      [...targets].map((id) => ({
-        id,
-        [field]: value,
-        [`${field}UpdatedAt`]: at,
-      })),
-    );
+    if (!result.updates.length) return;
+    games = result.games;
+    persistFlags(result.updates);
   }
   function bulkAdd(ids: string[], collectionId: string) {
     try {
-      let next = collections;
-      for (const id of ids)
-        next = addCollectionGame(next, collectionId, id, games);
-      settings.collections = next;
-      persistSettings();
-      notify(
-        `Added ${ids.length} ${ids.length === 1 ? "game" : "games"} to collection.`,
+      const result = addCollectionGames(collections, collectionId, ids, (id) =>
+        gameIndex.has(id),
       );
+      const added = result.addedCount;
+      if (!added) {
+        notify("Selected games are already in this collection.");
+        return;
+      }
+      settings.collections = result.collections;
+      persistSettings();
+      notify(`Added ${added} ${added === 1 ? "game" : "games"} to collection.`);
     } catch (error) {
-      notify(String(error), true);
+      notify(error instanceof Error ? error.message : String(error), true);
     }
   }
   function newBulkCollection(ids: string[]) {
@@ -1356,7 +1488,7 @@
       api.forgetArtworkMemory();
       dirtyEnrichment.clear();
       dirtyMetadataAttempts.clear();
-      selectionIds = new Set();
+      clearSelection();
       selectionMode = false;
       contextMenu = null;
       selectedId = null;
@@ -1378,7 +1510,8 @@
     }
   }
   $effect(() => {
-    const live = new Set(games.map((g) => g.id));
+    if (!selectionIds.size) return;
+    const live = gameIndex;
     if ([...selectionIds].some((id) => !live.has(id)))
       selectionIds = new Set([...selectionIds].filter((id) => live.has(id)));
   });
@@ -1466,7 +1599,7 @@
   }
   function navigate(value: Filter) {
     homeShelfFilter = null;
-    selectionIds = new Set();
+    clearSelection();
     selectionMode = false;
     page = "library";
     selectedId = null;
@@ -1477,6 +1610,38 @@
     sourceFilter = "";
     activitySource = "all";
     window.history.replaceState({}, "");
+  }
+  function searchFullLibrary() {
+    const currentQuery = query;
+    navigate("all");
+    installedOnly = false;
+    query = currentQuery;
+    void tick().then(() => searchInput?.focus());
+  }
+  function clearLibraryFilters() {
+    tagFilter = "";
+    sourceFilter = "";
+    activitySource = "all";
+    installedOnly = false;
+    searchInput?.focus();
+  }
+  function clearLibrarySearch() {
+    query = "";
+    searchInput?.focus();
+  }
+  async function browseSource(source: AccountSource) {
+    navigate(source);
+    installedOnly = false;
+    await tick();
+    libraryTitle?.focus({ preventScroll: true });
+  }
+  async function browseTag(tag: string) {
+    navigate("all");
+    installedOnly = false;
+    tagFilter = tagKey(tag);
+    showFilters = true;
+    await tick();
+    libraryTitle?.focus({ preventScroll: true });
   }
   function closeDetails() {
     if (window.history.state?.slopGame) window.history.back();
@@ -1509,8 +1674,7 @@
     if (value === "metadata") {
       metadataId = String(selected?.metadataId ?? "");
       metadataQuery = selected?.title ?? "";
-      metadataResults = [];
-      metadataSearched = false;
+      metadataSearchResult = undefined;
     }
     modal = value;
     if (value === "artwork" && artworkGame)
@@ -1534,29 +1698,26 @@
     updateGame(current.id, { artwork });
   }
   async function searchMetadata() {
-    if (busy || !api.desktop || demoMode || !selected || !metadataQuery.trim())
+    const query = metadataQuery.trim();
+    if (busy || !api.desktop || demoMode || !metadataSearchScope || !query)
       return;
     const request = ++metadataRequest,
-      gameId = selected.id,
       epoch = libraryEpoch,
-      query = metadataQuery;
+      scope = metadataSearchScope;
+    const current = () =>
+      request === metadataRequest &&
+      epoch === libraryEpoch &&
+      modal === "metadata" &&
+      scope === metadataSearchScope;
     busy = "search-metadata";
     formError = "";
+    metadataSearchResult = undefined;
     try {
-      const results = await api.searchMetadata(query);
-      if (
-        request !== metadataRequest ||
-        epoch !== libraryEpoch ||
-        selectedId !== gameId ||
-        modal !== "metadata" ||
-        query !== metadataQuery
-      )
-        return;
-      metadataResults = results;
-      metadataSearched = true;
+      const matches = await api.searchMetadata(query);
+      if (current()) metadataSearchResult = { scope, outcome: { matches } };
     } catch (e) {
-      if (request === metadataRequest && modal === "metadata")
-        formError = String(e);
+      if (current())
+        metadataSearchResult = { scope, outcome: { error: String(e) } };
     } finally {
       if (request === metadataRequest) busy = "";
     }
@@ -1693,6 +1854,7 @@
     if (page === "home") {
       filter = "all";
       homeShelfFilter = null;
+      activitySource = "all";
     }
     page = "library";
     selectedId = null;
@@ -1717,12 +1879,29 @@
       }
     }
     if (document.querySelector("dialog[open]")) return;
+    if (
+      e.key === "Enter" &&
+      e.target === searchInput &&
+      onlySearchResult &&
+      !e.isComposing &&
+      !e.repeat &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.shiftKey
+    ) {
+      e.preventDefault();
+      openGame(onlySearchResult);
+      void tick().then(() => detailsTitle?.focus({ preventScroll: true }));
+      return;
+    }
     const editing =
       e.target instanceof Element &&
       !!e.target.closest("input, textarea, select, [contenteditable='true']");
     if (e.key === "Escape" && e.target === searchInput) {
+      if (e.isComposing) return;
       e.preventDefault();
-      if (query) query = "";
+      if (query) clearLibrarySearch();
       else searchInput?.blur();
       return;
     }
@@ -1733,13 +1912,12 @@
       e.key.toLowerCase() === "a"
     ) {
       e.preventDefault();
-      selectionIds = new Set(filtered.map((g) => g.id));
+      selectAllShown();
       return;
     }
     if (!editing && selectionMode && e.key === "Escape") {
       e.preventDefault();
-      selectionMode = false;
-      selectionIds = new Set();
+      finishSelecting();
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -1802,7 +1980,7 @@
     busy = "scan";
     try {
       const folders = JSON.stringify(settings.libraryFolders ?? {});
-      const before = new Set(games.flatMap((g) => g.copies.map((c) => c.id)));
+      const before = games;
       const report = await api.scanInstalled(settings.libraryFolders ?? {});
       if (
         epoch !== libraryEpoch ||
@@ -1810,20 +1988,51 @@
         folders !== JSON.stringify(settings.libraryFolders ?? {})
       )
         return;
-      const current = new Set(games.flatMap((g) => g.copies.map((c) => c.id)));
-      games = mergeDiscovered(
-        games,
-        allowedGames(report.games, banishedGames).filter((g) =>
-          g.copies.every((c) => !before.has(c.id) || current.has(c.id)),
-        ),
-      );
+      let discoveries = allowedGames(report.games, banishedGames);
+      if (before !== games) {
+        const copyOwners = (library: Game[]) => {
+          const owners = new Map<string, Game>();
+          for (const game of library)
+            for (const copy of game.copies) owners.set(copy.id, game);
+          return owners;
+        };
+        const previousOwners = copyOwners(before);
+        const currentOwners = copyOwners(games);
+        discoveries = discoveries.filter((game) =>
+          game.copies.every(({ id }) => {
+            const previous = previousOwners.get(id);
+            const current = currentOwners.get(id);
+            return (
+              !previous ||
+              previous === current ||
+              (current &&
+                identity(previous, "steam") === identity(current, "steam"))
+            );
+          }),
+        );
+      }
+      const merged = mergeDiscovered(games, discoveries);
+      const added = merged.length - games.length;
+      if (merged !== games) {
+        games = merged;
+        persist();
+      }
       scanMessages = report.messages;
-      persist();
-      notify(`Found ${report.games.length} installed game records.`);
+      const found = report.games.length;
+      const summary = `${found} installation record${found === 1 ? "" : "s"} found · ${
+        added
+          ? `${added} new game${added === 1 ? "" : "s"} added`
+          : "No new games added"
+      }`;
+      scanSummary = { text: summary };
+      if (page !== "sources") notify(summary);
       void refreshUninstalls(true);
       void refreshSteamHistory();
     } catch (e) {
-      notify(String(e), true);
+      if (epoch !== libraryEpoch || demoMode) return;
+      const text = e instanceof Error ? e.message : String(e);
+      scanSummary = { text: `Scan failed. ${text}`, error: true };
+      if (page !== "sources") notify(scanSummary.text, true);
     } finally {
       busy = "";
     }
@@ -1913,22 +2122,24 @@
       return;
     historyRefreshing = true;
     const epoch = libraryEpoch;
+    const current = () =>
+      epoch === libraryEpoch &&
+      !demoMode &&
+      !libraryMutation &&
+      steamAchievementAccount?.connected &&
+      !steamAchievementAccount.reconnectRequired &&
+      steamAchievementAccount.revision === account.revision;
     try {
       await persistence;
+      if (!current()) return;
       const result = await api.syncSteamHistory(force);
-      if (
-        epoch !== libraryEpoch ||
-        demoMode ||
-        libraryMutation ||
-        !steamAchievementAccount?.connected ||
-        steamAchievementAccount.revision !== result.revision
-      )
-        return;
+      if (!current() || account.revision !== result.revision) return;
       historyNext = result.nextCheckAt;
       games = applySteamHistory(games, result.updates);
       historyMessage = result.warning ?? "Steam play history is up to date.";
       if (announce) notify(historyMessage, !!result.warning);
     } catch (error) {
+      if (!current()) return;
       historyNext = Date.now() + 300000;
       historyMessage = String(error);
       if (announce) notify(historyMessage, true);
@@ -2108,12 +2319,14 @@
     flushEnrichment();
     manualMetadata.clear();
     libraryEpoch++;
+    scanSummary = undefined;
     installWatch.clear();
     pendingUninstalls.clear();
     closeModal();
     selectedId = null;
     query = "";
     filter = "all";
+    activitySource = "all";
     page = "home";
     window.history.replaceState({}, "");
     if (demoMode) {
@@ -2140,8 +2353,8 @@
         api.loadLibrary(),
         api.listBanished(),
       ]);
-      banishedGames = blocked;
       if (epoch !== libraryEpoch) return;
+      banishedGames = blocked;
       settings = {
         ...defaultSettings,
         ...library.settings,
@@ -2201,7 +2414,7 @@
         .then((status) => (providers = status))
         .catch((e) => notify(String(e), true));
     const retryTimer = setInterval(() => {
-      clockTime = Date.now();
+      clockTick = Date.now();
       void refreshUninstalls();
       void refreshInstalls();
       reconcileEnrichment();
@@ -2239,7 +2452,7 @@
   onkeydown={keyboard}
   onpopstate={popstate}
   onfocus={() => {
-    clockTime = Date.now();
+    clockTick = Date.now();
     void refreshUninstalls();
     void refreshInstalls();
     reconcileEnrichment();
@@ -2273,7 +2486,7 @@
         class:nav-active={page === "library" && filter === "all"}
         onclick={() => navigate("all")}
         ><Library size={19} /><span>Library</span><span class="nav-count"
-          >{libraryCount}</span
+          >{libraryCounts.library}</span
         ></button
       >
       <button
@@ -2508,7 +2721,11 @@
             {games}
             accounts={accountStates}
             manager={accountManager}
-            onSteamHistory={() => void refreshSteamHistory(true)}
+            browsableSourceCounts={sourceCounts}
+            onbrowse={browseSource}
+            onSteamHistory={steamHistoryConnection === "connected"
+              ? () => void refreshSteamHistory(true)
+              : undefined}
             steamHistoryBusy={historyRefreshing}
             steamHistoryMessage={historyMessage}
             disabled={demoMode || !!busy || !ready}
@@ -2524,6 +2741,15 @@
                   Read local Steam, Epic, Amazon, GOG, and itch.io records
                   without changing your game files.
                 </p>
+                <div role="status">
+                  {#if busy === "scan"}
+                    <p class="scan-summary">Scanning for installed games…</p>
+                  {:else if scanSummary}
+                    <p class="scan-summary" class:error={scanSummary.error}>
+                      {scanSummary.text}
+                    </p>
+                  {/if}
+                </div>
               </div>
               <button
                 class="secondary-button"
@@ -2795,6 +3021,9 @@
     {:else if selected}
       {@const copy = preferredCopy(selected)}
       {@const action = launchAction(selected)}
+      {@const selectedVersionKey = copy
+        ? versionKey(selected.id, copy.id)
+        : undefined}
       <main class="details-page">
         <div
           class="detail-hero"
@@ -2805,7 +3034,8 @@
           <Cover game={selected} hero />
           <div class="hero-shade"></div>
           <div class="hero-source">
-            {#each selected.copies as c}<span>{sourceNames[c.source]}</span
+            {#each [...new Set(selected.copies.map((c) => c.source))] as source}<span
+                >{sourceNames[source] ?? source}</span
               >{/each}
           </div>
         </div>
@@ -2826,16 +3056,12 @@
                       aria-hidden="true">·</span
                     >{/if}<button
                     class="detail-genre-link"
-                    onclick={() => {
-                      navigate("all");
-                      tagFilter = tagKey(genre);
-                      showFilters = true;
-                    }}>{genre}</button
+                    onclick={() => browseTag(genre)}>{genre}</button
                   >{/each}{#if selected.year || selected.releasedAt !== undefined}{#if selected.genres.length}<span
                       aria-hidden="true">/</span
                     >{/if}<span>{releaseLabel(selected)}</span>{/if}
               </div>
-              <h1>{selected.title}</h1>
+              <h1 bind:this={detailsTitle!} tabindex="-1">{selected.title}</h1>
               <p>
                 {selected.developer ??
                   (copy?.emulation
@@ -2860,18 +3086,22 @@
                     />{:else if action.storeUrl}<ExternalLink
                       size={17}
                     />{:else}<Download size={17} />{/if}{action.label}</button
-                >{#if selectedVersions.length > 1}<select
-                    class="version-select"
-                    aria-label="Preferred copy"
-                    value={copy?.id}
-                    onchange={(e) => chooseVersion(e.currentTarget.value)}
-                    >{#each selectedVersions as version}{@const c =
-                        version.copy}<option value={c.id}
-                        >{sourceNames[c.source]}{c.installed
-                          ? " · Installed"
-                          : ""}</option
-                      >{/each}</select
-                  >{:else}<span class="launch-via"
+                >{#if selectedVersionOptions.length > 1}
+                  <label class="version-control">
+                    <span>Version</span>
+                    <select
+                      value={selectedVersionKey}
+                      title={selectedVersionOptions.find(
+                        (option) => option.key === selectedVersionKey,
+                      )?.detail}
+                      onchange={(e) => chooseVersion(e.currentTarget.value)}
+                    >
+                      {#each selectedVersionOptions as option (option.key)}
+                        <option value={option.key}>{option.label}</option>
+                      {/each}
+                    </select>
+                  </label>
+                {:else}<span class="launch-via"
                     >{copy?.installed ? "via" : "Source"}
                     {copy?.emulation
                       ? (settings.emulators?.find(
@@ -2944,7 +3174,8 @@
               <PlayActivity
                 game={selected}
                 refreshing={historyRefreshing}
-                onrefresh={steamAchievementAccount?.connected && !demoMode
+                steamConnection={steamHistoryConnection}
+                onrefresh={steamHistoryConnection === "connected"
                   ? () => void refreshSteamHistory(true)
                   : undefined}
               />
@@ -2962,19 +3193,16 @@
                     }}>Find game details <ArrowUpRight size={14} /></button
                   >{/if}
               </section>
-              <GameTags
-                gameId={selected.id}
-                tags={selected.tags ?? []}
-                customTags={(selectedId ? gameIndex.get(selectedId)?.tags : undefined) ?? []}
-                suggestions={tags}
-                onchange={(values) =>
-                  updateGame(selected!.id, { tags: values })}
-                onfilter={(tag) => {
-                  navigate("all");
-                  tagFilter = tagKey(tag);
-                  showFilters = true;
-                }}
-              />
+              {#key selected.id}
+                <GameTags
+                  tags={selected.tags ?? []}
+                  customTags={(selectedId ? gameIndex.get(selectedId)?.tags : undefined) ?? []}
+                  suggestions={tags}
+                  onchange={(values) =>
+                    updateGame(selected!.id, { tags: values })}
+                  onfilter={browseTag}
+                />
+              {/key}
               <GameCollections
                 gameId={selected.id}
                 collections={resolvedCollections}
@@ -3190,6 +3418,7 @@
         onlibrary={() => navigate("all")}
         onretry={() => void loadLibrary()}
         shelves={homeShelves}
+        orderChanged={homeOrderChanged}
         cardWidth={(() => {
           const gap = settings.comfortableLibrary ? 24 : 16;
           const minimum = Math.round(
@@ -3228,7 +3457,7 @@
         <div class="library-heading">
           <div>
             <div class="page-eyebrow">YOUR COLLECTION</div>
-            <h1>
+            <h1 bind:this={libraryTitle!} tabindex="-1">
               <span class="heading-title" {title}>{title}</span><span
                 class="heading-count">{filtered.length}</span
               >
@@ -3239,7 +3468,7 @@
                 : isCollectionFilter(filter)
                   ? "A collection from across your library."
                   : filter === "all"
-                    ? `${installedCount} installed · ${sources.filter((s) => sourceCounts.has(s)).length} sources`
+                    ? `${libraryCounts.installed} installed · ${sources.filter((s) => sourceCounts.has(s)).length} sources`
                     : filter === "favorites"
                       ? "The ones you keep coming back to."
                       : filter === "recent"
@@ -3250,7 +3479,7 @@
             </p>
             {#if homeShelfFilter}<button
                 class="text-button collection-edit-button"
-                onclick={() => (homeShelfFilter = null)}
+                onclick={searchFullLibrary}
                 ><X size={13} />Show full library</button
               >{/if}
             {#if activeCollection}<button
@@ -3265,18 +3494,21 @@
               bind:value={query}
               placeholder="Search your games"
               aria-label="Search your games"
-            />{#if query}<button
+              aria-describedby={onlySearchResult ? "search-open-hint" : undefined}
+            />{#if onlySearchResult}<kbd
+                id="search-open-hint"
+                aria-label="Press Enter to open the only result"
+                title="Open the only result"
+                >Enter</kbd
+              >{/if}{#if query}<button
                 aria-label="Clear search"
                 title="Clear search (Esc)"
-                onclick={() => {
-                  query = "";
-                  searchInput?.focus();
-                }}><X size={14} /></button
+                onclick={clearLibrarySearch}><X size={14} /></button
               >{:else}<kbd>Ctrl K</kbd>{/if}
           </div>
         </div>
         <div class="library-toolbar">
-          <div class="filter-pills">
+          <div class="filter-pills" class:recent-filter-pills={filter === "recent"}>
             <button
               class:chosen={!installedOnly}
               aria-pressed={!installedOnly}
@@ -3288,17 +3520,13 @@
               ><span class="tiny-dot"></span>Installed</button
             ><button
               class="filter-toggle"
+              bind:this={filtersToggle}
               class:chosen={showFilters}
               aria-expanded={showFilters}
               onclick={() => (showFilters = !showFilters)}
               ><SlidersHorizontal
                 size={14}
-              />Filters{#if tagFilter || sourceFilter || activitySource !== "all"}<span
-                  class="filter-count"
-                  >{Number(!!tagFilter) +
-                    Number(!!sourceFilter) +
-                    Number(activitySource !== "all")}</span
-                >{/if}</button
+              />Filters</button
             ><button
               class="smart-collections-link"
               onclick={newSmartCollection}
@@ -3306,14 +3534,24 @@
               title="Create a collection that updates automatically"
               ><Sparkles size={14} />Smart Collections</button
             >
+            {#if filter === "recent"}
+              <label class="sort-control activity-history-control">
+                <span>Activity history</span><select bind:value={activitySource}
+                  ><option value="all">Steam + SlopLauncher</option><option
+                    value="steam">Steam only</option
+                  ><option value="launcher">SlopLauncher only</option></select
+                ><ChevronDown size={12} />
+              </label>
+            {/if}
           </div>
           <div class="library-layout-controls">
             {#if !demoMode}<button
                 class="text-button"
+                bind:this={selectionToggle}
                 aria-pressed={selectionMode}
                 onclick={() => {
-                  selectionMode = !selectionMode;
-                  if (!selectionMode) selectionIds = new Set();
+                  if (selectionMode) finishSelecting();
+                  else selectionMode = true;
                 }}>{selectionMode ? "Done selecting" : "Select games"}</button
               >{/if}
             <label class="sort-control"
@@ -3330,6 +3568,14 @@
                   >{/each}</select
               ><ChevronDown size={12} /></label
             >
+            {#if grouped.length > 1}
+              <button
+                type="button"
+                class="text-button jump-group-button"
+                aria-haspopup="dialog"
+                onclick={() => openModal("jump-group")}
+              >Jump to group<ChevronDown size={12} /></button>
+            {/if}
             <div class="sort-control">
               <span>Sort by</span><select
                 aria-label="Sort library"
@@ -3356,22 +3602,17 @@
                   >{/each}</select
               ></label
             >
-            {#if filter === "recent"}<label
-                >Activity history<select
-                  aria-label="Activity history"
-                  bind:value={activitySource}
-                  ><option value="all">Steam + SlopLauncher</option><option
-                    value="steam">Steam only</option
-                  ><option value="launcher">SlopLauncher only</option></select
-                ></label
-              >{/if}
-            <label
-              >Tag<select aria-label="Tag" bind:value={tagFilter}
-                ><option value="">All tags</option>{#each tags as g}<option
-                    value={tagKey(g)}>{g}</option
-                  >{/each}</select
-              ></label
-            ><label class="size-control"
+            <div class="tag-filter-control">
+              <span>Tag</span>
+              <button
+                type="button"
+                aria-label={`Tag: ${activeTagLabel || "All tags"}`}
+                aria-haspopup="dialog"
+                title={activeTagLabel || undefined}
+                onclick={() => openModal("tags")}
+              ><span>{activeTagLabel || "All tags"}</span><ChevronDown size={12} /></button>
+            </div>
+            <label class="size-control"
               >Cover size<input
                 aria-label="Cover size"
                 type="range"
@@ -3394,60 +3635,101 @@
                   activitySource = "all";
                 }}>Clear filters<X size={13} /></button
               >{/if}
-          </div>{/if}
+          </div>
+        {:else if sourceFilter || tagFilter}
+          {#snippet activeFilter(label: string, value: string, clear: () => void)}
+            <button
+              aria-label={`Remove ${label.toLowerCase()} filter: ${value}`}
+              onclick={() => {
+                clear();
+                filtersToggle?.focus();
+              }}
+            >
+              <span><span class="active-filter-label">{label}</span> {value}</span>
+              <X size={13} />
+            </button>
+          {/snippet}
+          <div class="active-filters" role="group" aria-label="Active filters">
+            {#if sourceFilter}
+              {@render activeFilter("Source", sourceNames[sourceFilter as Source] ?? sourceFilter, () => (sourceFilter = ""))}
+            {/if}
+            {#if tagFilter}
+              {@render activeFilter("Tag", activeTagLabel, () => (tagFilter = ""))}
+            {/if}
+          </div>
+        {/if}
         {#if selectionMode}<div
             class="bulk-actions"
+            role="group"
             aria-label="Selected game actions"
           >
-            <strong>{selectionIds.size} selected</strong><button
-              class="text-button"
-              onclick={() =>
-                (selectionIds = new Set(filtered.map((g) => g.id)))}
-              >Select all shown</button
-            >
-            <select
-              aria-label="Bulk game action"
-              disabled={!selectionIds.size}
-              onchange={(event) => {
-                const action = event.currentTarget.value;
-                event.currentTarget.value = "";
-                if (action === "banish") requestBanish([...selectionIds]);
-                else if (action === "favorite")
-                  bulkFlag([...selectionIds], "favorite", true);
-                else if (action === "unfavorite")
-                  bulkFlag([...selectionIds], "favorite", false);
-                else if (action === "hide")
-                  bulkFlag([...selectionIds], "hidden", true);
-                else if (action === "unhide")
-                  bulkFlag([...selectionIds], "hidden", false);
-              }}
-              ><option value="">Choose action…</option><option value="favorite"
-                >Add to Favorites</option
-              ><option value="unfavorite">Remove from Favorites</option><option
-                value="hide">Hide</option
-              ><option value="unhide">Unhide</option><option value="banish"
-                >Banish…</option
-              ></select
-            >
-            <select
-              aria-label="Add selected games to collection"
-              disabled={!selectionIds.size}
-              onchange={(event) => {
-                const id = event.currentTarget.value;
-                event.currentTarget.value = "";
-                id === "new"
-                  ? newBulkCollection([...selectionIds])
-                  : bulkAdd([...selectionIds], id);
-              }}
-              ><option value="">Add to Collection…</option
-              >{#each collections.filter((c) => !c.rule) as c}<option
-                  value={c.id}>{c.name}</option
-                >{/each}<option value="new">New Collection…</option></select
-            >
-            <button
-              class="text-button"
-              onclick={() => (selectionIds = new Set())}>Clear selection</button
-            >
+            <div class="bulk-selection-controls">
+              <div class="bulk-selection-status" role="status">
+                <strong>{selectionIds.size} selected</strong>
+                {#if outOfViewSelectionCount}<span class="bulk-selection-outside"
+                    >{outOfViewSelectionCount} outside current view</span
+                  >{/if}
+              </div>
+              {#if outOfViewSelectionCount && outOfViewSelectionCount < selectionIds.size}
+                <button
+                  class="text-button"
+                  onclick={keepShownSelection}>Keep shown</button
+                >
+              {/if}
+              <button
+                class="text-button"
+                disabled={!filtered.length}
+                onclick={selectAllShown}
+                >Select all shown</button
+              >
+              <button
+                class="text-button"
+                disabled={!selectionIds.size}
+                onclick={finishSelecting}>Clear selection</button
+              >
+            </div>
+            <div class="bulk-action-controls">
+              <select
+                bind:this={bulkGameAction}
+                aria-label="Bulk game action"
+                disabled={!selectionIds.size}
+                onchange={(event) => {
+                  const action = event.currentTarget.value;
+                  event.currentTarget.value = "";
+                  if (action === "banish") requestBanish([...selectionIds]);
+                  else if (action === "favorite")
+                    bulkFlag([...selectionIds], "favorite", true);
+                  else if (action === "unfavorite")
+                    bulkFlag([...selectionIds], "favorite", false);
+                  else if (action === "hide")
+                    bulkFlag([...selectionIds], "hidden", true);
+                  else if (action === "unhide")
+                    bulkFlag([...selectionIds], "hidden", false);
+                }}
+                ><option value="">Choose action…</option><option value="favorite"
+                  >Add to Favorites</option
+                ><option value="unfavorite">Remove from Favorites</option><option
+                  value="hide">Hide</option
+                ><option value="unhide">Unhide</option><option value="banish"
+                  >Banish…</option
+                ></select
+              >
+              <select
+                aria-label="Add selected games to collection"
+                disabled={!selectionIds.size}
+                onchange={(event) => {
+                  const id = event.currentTarget.value;
+                  event.currentTarget.value = "";
+                  id === "new"
+                    ? newBulkCollection([...selectionIds])
+                    : bulkAdd([...selectionIds], id);
+                }}
+                ><option value="">Add to Collection…</option
+                >{#each collections.filter((c) => !c.rule) as c}<option
+                    value={c.id}>{c.name}</option
+                  >{/each}<option value="new">New Collection…</option></select
+              >
+            </div>
           </div>{/if}
         {#if loadError}<div class="empty-state" role="alert">
             <Info size={28} />
@@ -3464,7 +3746,11 @@
             <LoaderCircle size={28} class="spin" />
             <h2>Opening your library</h2>
           </div>{:else if !filtered.length}
-            {@const canClear = !!(query || tagFilter || sourceFilter || installedOnly || activitySource !== "all")}
+            {@const hasViewFilters = !!(tagFilter || sourceFilter || installedOnly || activitySource !== "all")}
+            {@const canSearchFull = !!(
+              games.length && queryWords.length &&
+              (filter !== "all" || homeShelfFilter)
+            )}
             <div class="empty-state">
             <span class="empty-icon"
               ><Gamepad2 size={31} strokeWidth={1.3} /></span
@@ -3475,7 +3761,7 @@
                   ? "No matching hidden games"
                   : "No hidden games"
                 : activeCollection &&
-                    !totalFolderCounts.get(activeCollection.id)
+                    !activeCollectionHasGames
                   ? "Your collection is ready"
                   : filter === "favorites" && !favoriteCount
                     ? "No favorites yet"
@@ -3489,42 +3775,42 @@
                   ? "Try another search or adjust your filters."
                   : "Games you hide will appear here. Your other games remain in the library."
                 : activeCollection &&
-                    !totalFolderCounts.get(activeCollection.id)
+                    !activeCollectionHasGames
                   ? activeCollection.rule
                     ? "New matching games will appear here automatically. Edit this collection to save its current matches as a snapshot."
                     : "Choose games from your library to add to this collection."
                   : filter === "favorites" && !favoriteCount
                     ? "Select the heart on a game in your library to find it here."
-                  : games.length && !canClear && filter !== "all"
+                  : games.length && !query && !hasViewFilters && filter !== "all"
                     ? "Browse the full library to find another game."
                   : games.length
                     ? hiddenCount && !settings.showHiddenGames
                       ? "Try another search or enable Show hidden games in Settings."
-                      : "Try another search or adjust your filters."
+                      : query && hasViewFilters
+                        ? "Try another search or clear the filters for this view."
+                        : query
+                          ? "Try a different title, tag, or genre."
+                          : "Adjust your filters to see more games."
                     : "Find installed games, connect your accounts, or add a game of your own."}
             </p>
             <div>
-              {#if filter === "hidden" && !hiddenCount}<button
+              {#if canSearchFull}<button
+                  class="primary-button"
+                  onclick={searchFullLibrary}
+                  ><Search size={15} />Search full library</button
+                >{/if}
+              {#if filter === "hidden" && !hiddenCount && !canSearchFull}<button
                   class="secondary-button"
                   onclick={() => navigate("all")}>Back to library</button
                 >
-              {:else if activeCollection && !totalFolderCounts.get(activeCollection.id)}<button
+              {:else if activeCollection && !activeCollectionHasGames}<button
                   class="primary-button"
                   onclick={() => editCollection(activeCollection)}
                   ><Plus size={15} />{activeCollection.rule
                     ? "Edit matching collection"
                     : "Add games to collection"}</button
                 >
-              {:else if games.length && canClear && !(filter === "favorites" && !favoriteCount)}<button
-                  class="secondary-button"
-                  onclick={() => {
-                    query = "";
-                    tagFilter = "";
-                    sourceFilter = "";
-                    activitySource = "all";
-                    installedOnly = false;
-                  }}>Clear filters</button
-                >{:else if games.length && (filter !== "all" || homeShelfFilter)}<button
+              {:else if games.length && !canSearchFull && !hasViewFilters && (filter !== "all" || homeShelfFilter)}<button
                   class="secondary-button"
                   onclick={() => {
                     installedOnly = false;
@@ -3543,6 +3829,14 @@
                   onclick={() => openModal("add")}
                   ><Plus size={15} />Add game</button
                 >{/if}
+              {#if games.length && hasViewFilters}<button
+                  class="secondary-button"
+                  onclick={clearLibraryFilters}>Clear view filters</button
+                >{/if}
+              {#if games.length && query}<button
+                  class="secondary-button"
+                  onclick={clearLibrarySearch}>Clear search</button
+                >{/if}
               {#if filter !== "hidden" && hiddenCount && !settings.showHiddenGames}<button
                   class="text-button"
                   onclick={showSettings}>Show hidden games in Settings</button
@@ -3552,6 +3846,7 @@
                 >Explore a sample library<ArrowUpRight size={13} /></button
               >{/if}
           </div>{:else}{#key filter}<VirtualGrid
+              bind:this={libraryGrid}
               games={filtered}
               groups={grouped}
               onsavegroup={demoMode
@@ -3670,12 +3965,18 @@
   class:artwork-dialog={modal === "artwork"}
   class:grouping-dialog={modal === "grouping"}
   class:banished-dialog={modal === "banished"}
+  class:option-picker-dialog={modal === "tags" || modal === "jump-group"}
   aria-labelledby="dialog-title"
 >
   {#if modal}
     <div class="dialog-header">
       <h2 id="dialog-title">
-        {modal === "banished"
+        {#if modal === "tags"}
+          Filter by tag
+        {:else if modal === "jump-group"}
+          Jump to group
+        {:else}
+          {modal === "banished"
           ? "Banished games"
           : modal === "banish"
             ? "Banish games"
@@ -3703,6 +4004,7 @@
                                 selected.screenshots.length > 1
                               ? `Screenshot ${screenshotIndex + 1} of ${selected.screenshots.length}`
                               : "Screenshot"}
+        {/if}
       </h2>
       <button
         class="icon-button"
@@ -3711,10 +4013,29 @@
         onclick={closeModal}><X size={19} /></button
       >
     </div>
-    {#if modal === "banished"}<BanishedGames
+    {#if modal === "tags"}
+      <OptionPicker
+        options={tags}
+        noun="tag"
+        normalize={tagKey}
+        selected={tagFilter}
+        clearLabel="All tags"
+        onselect={(key) => {
+          tagFilter = key;
+          closeModal();
+        }}
+      />
+    {:else if modal === "jump-group"}
+      <OptionPicker
+        options={groupOptionsForJump}
+        noun="group"
+        normalize={groupSearchText}
+        onselect={jumpToLibraryGroup}
+      />
+    {:else if modal === "banished"}<BanishedGames
         entries={banishedGroups}
         busy={libraryMutation}
-        onrestore={(ids) => void mutateBlacklist(true, ids)}
+        onrestore={(ids) => mutateBlacklist(true, ids)}
       />
     {:else if modal === "banish"}<div class="banish-confirm">
         <p>
@@ -3862,16 +4183,22 @@
             <input
               aria-label="Find a game"
               bind:value={metadataQuery}
-              oninput={() => {
-                metadataResults = [];
-                metadataSearched = false;
+              oninput={() => (metadataSearchResult = undefined)}
+              onkeydown={(event) => {
+                if (event.key !== "Enter" || event.isComposing) return;
+                event.preventDefault();
+                void searchMetadata();
               }}
               placeholder="Search by game title"
             /><button
               type="button"
               class="secondary-button"
               onclick={searchMetadata}
-              disabled={!!busy || demoMode || !api.desktop}
+              disabled={!!busy ||
+                demoMode ||
+                !api.desktop ||
+                !metadataQuery.trim() ||
+                !selected}
               >{#if busy === "search-metadata"}<LoaderCircle
                   size={15}
                   class="spin"
@@ -3879,14 +4206,16 @@
             >
           </div></label
         >
-        {#if metadataResults.length}<div class="metadata-results">
-            {#each metadataResults as match}<button
+        {#if metadataSearchOutcome && "error" in metadataSearchOutcome}
+          <p class="form-error" role="alert">{metadataSearchOutcome.error}</p>
+        {:else if metadataSearchOutcome?.matches.length}<div class="metadata-results">
+            {#each metadataSearchOutcome.matches as match}<button
                 type="button"
                 disabled={!!busy}
                 onclick={() => applyMatch(match.appId)}
                 ><span>{match.title}</span><ArrowUpRight size={14} /></button
               >{/each}
-          </div>{:else if metadataSearched}<p class="field-hint">
+          </div>{:else if metadataSearchOutcome}<p class="field-hint" role="status">
             No matching games found. Try a shorter title or a different
             spelling.
           </p>{/if}

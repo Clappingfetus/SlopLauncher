@@ -3,9 +3,9 @@ import type { Game, SmartGroup, SmartCondition } from "./types";
 import { demoGames } from "./demo";
 import { filterGames, mergeDiscovered } from "./library";
 import { identity } from "./enrichment-identity";
-import { groupGames, validateGroups } from "./grouping";
+import { createSmartGroupPreview, groupGames, validateGroups } from "./grouping";
 import { DAY, GIB, installedBytes, mainExtraHours } from "./game-facts";
-import { gridLayout, gridRowAt } from "./grid-layout";
+import { gridLayout } from "./grid-layout";
 import { artworkRowsWindow } from "./artwork-window";
 const now = Date.UTC(2026, 9, 21, 12);
 const game = (id: string, hours?: number): Game => {
@@ -138,6 +138,52 @@ describe("live smart groups", () => {
       )[0].name,
     ).toBe("Other");
   });
+  it("previews ordered legacy membership with a bounded sample and current game identities", () => {
+    const rules = [
+      group([rule("hltb", "lt", "10")], "all", "quick"),
+      group([rule("hltb", "known")], "all", "timed"),
+      group([rule("added", "known")], "all", "recent"),
+    ];
+    const quick = game("Quick", 5);
+    const first = game("First", 20);
+    const second = game("Second", 30);
+    const library = [quick, first, second, game("Unknown")];
+    const preview = (games: Game[]) =>
+      createSmartGroupPreview(games, now)(rules, "timed", 1);
+    expect(preview(library)).toEqual({ count: 2, sample: [first] });
+
+    const rematched = { ...first, title: "Changed identity" };
+    const late = game("Late", 40);
+    const updated = [quick, rematched, late];
+    expect(preview(updated)).toEqual({ count: 1, sample: [late] });
+    const bucket = groupGames(updated, "smart", rules, now).find(
+      (item) => item.id === "smart:timed",
+    );
+    expect(preview(updated).sample[0]).toBe(bucket?.games[0]);
+    expect(preview([])).toEqual({ count: 0, sample: [] });
+  });
+  it("re-evaluates edits to thresholds, preceding rules and fields against the same snapshot", () => {
+    const quick = game("Quick", 5);
+    const long = game("Long", 40);
+    const missing = game("Missing");
+    const preview = createSmartGroupPreview([quick, long, missing], now);
+    const target = group([rule("hltb", "known")], "all", "target");
+    const preceding = (value: string) =>
+      group([rule("hltb", "lt", value)], "all", "preceding");
+    expect(preview([preceding("10"), target], "target", 2).sample).toEqual([long]);
+    expect(preview([preceding("3"), target], "target", 2).sample).toEqual([quick, long]);
+    expect(
+      preview([group([rule("added", "within", "2")])], "one", 3).count,
+    ).toBe(3);
+    expect(preview([target], "target", 2).sample).toEqual([quick, long]);
+    expect(
+      createSmartGroupPreview([missing], now + 2 * DAY)(
+        [group([rule("added", "within", "2")])],
+        "one",
+        1,
+      ).count,
+    ).toBe(0);
+  });
   it("handles partial release years conservatively and exact days inclusively", () => {
     const g = game("Year");
     g.year = 2020;
@@ -240,13 +286,40 @@ describe("one virtual viewport for grouped libraries", () => {
       { id: "b", name: "B", games: games.slice(3) },
     ];
     const layout = gridLayout(games, groups, 4, 300);
-    expect(layout.rows.map((r) => r.top)).toEqual([0, 52, 352, 404, 704]);
+    const rows = Array.from({ length: layout.rowCount }, (_, i) => layout.row(i)!);
+    expect(rows.map((r) => r.top)).toEqual([0, 52, 352, 404, 704]);
     expect(layout.height).toBe(1004);
-    expect(gridRowAt(layout.rows, 402)).toBe(2);
-    expect(gridRowAt(layout.rows, 10000)).toBe(4);
-    expect(layout.rows.flatMap((r) => r.games ?? []).map((g) => g.id)).toEqual(
+    expect(layout.rowAt(402)).toBe(2);
+    expect(layout.rowAt(10000)).toBe(4);
+    expect(layout.groupOffsets.get("b")).toBe(352);
+    expect(rows.flatMap((r) => r.games ?? []).map((g) => g.id)).toEqual(
       games.map((g) => g.id),
     );
+  });
+  it("keeps fractional row boundaries consistent as games move between groups", () => {
+    const original = game("original");
+    const late = game("late");
+    const pitch = 231.7;
+    const before = gridLayout([original], [], 1, pitch);
+    expect(before.row(-1)).toBeUndefined();
+    expect(before.rowAt(pitch)).toBe(0);
+    expect(before.row(1)).toBeUndefined();
+    const after = gridLayout([original, late], [
+      { id: "empty", name: "Empty", games: [] },
+      { id: "first", name: "First", games: [original, late] },
+    ], 1, pitch);
+    expect(after.groupOffsets.has("empty")).toBe(false);
+    const lastTop = after.row(2)!.top;
+    expect(after.rowAt(lastTop - 0.001)).toBe(1);
+    expect(after.rowAt(lastTop)).toBe(2);
+    expect(after.row(2)?.games).toEqual([late]);
+    const rematched = { ...late, title: "Rematched" };
+    const regrouped = gridLayout([rematched], [
+      { id: "second", name: "Second", games: [rematched] },
+    ], 2, pitch);
+    expect(regrouped.groupOffsets.has("first")).toBe(false);
+    expect(regrouped.row(1)?.games).toEqual([rematched]);
+    expect(gridLayout([], [], 2, pitch).rowCount).toBe(0);
   });
   it("bounds nearby image requests with 10,000 one-game groups", () => {
     const games = Array.from({ length: 10000 }, (_, i) => ({
@@ -255,9 +328,9 @@ describe("one virtual viewport for grouped libraries", () => {
     }));
     const groups = games.map((g) => ({ id: g.id, name: g.title, games: [g] }));
     const layout = gridLayout(games, groups, 5, 320);
-    const first = gridRowAt(layout.rows, 1000000),
-      last = gridRowAt(layout.rows, 1000900) + 1;
-    const requests = artworkRowsWindow(layout.rows, first, last, 1, 384);
+    const first = layout.rowAt(1000000),
+      last = layout.rowAt(1000900) + 1;
+    const requests = artworkRowsWindow(layout.row, first, last, 1, 384);
     expect(requests.length).toBeLessThan(30);
     expect(requests.every((r) => Number(r.url.slice(3)) > 2500)).toBe(true);
     expect(requests.length * 384 * 384 * 6).toBeLessThan(48 * 1024 * 1024);

@@ -9,6 +9,30 @@ export interface HomeShelf {
 }
 export const HOME_ROW_DRAG = "application/x-sloplauncher-home-row";
 const byTitle = (a: Game, b: Game) => a.title.localeCompare(b.title);
+type RankedGame = { game: Game; rank: number };
+const descendingRank = (a: RankedGame, b: RankedGame) =>
+  b.rank - a.rank || byTitle(a.game, b.game);
+const ascendingRank = (a: RankedGame, b: RankedGame) =>
+  a.rank - b.rank || byTitle(a.game, b.game);
+
+export function createHomeShelfBuilder() {
+  // Identity validation is reusable for an immutable game snapshot.
+  const hoursByGame = new WeakMap<Game, number>();
+  return (
+    games: Game[],
+    collections: GameCollection[],
+    now = Date.now(),
+    collectionGames?: Map<string, Game[]>,
+  ) =>
+    buildHomeShelves(games, collections, now, collectionGames, (game) => {
+      const cached = hoursByGame.get(game);
+      if (cached !== undefined) return cached;
+      const hours = mainExtraHours(game) ?? 0;
+      hoursByGame.set(game, hours);
+      return hours;
+    });
+}
+
 export function homeCollectionMembers(games: Game[], collections: GameCollection[]) {
   const lists = new Map<string, Game[]>();
   const memberships = new Map<string, Game[][]>();
@@ -31,32 +55,28 @@ export function homeCollectionMembers(games: Game[], collections: GameCollection
 }
 // Three played entries per addition keep activity focused on returning to games.
 export function recentActivity(played: Game[], added: Game[]) {
-  // A game already represented in the played stream must not consume an
-  // addition slot, or the mixed shelf can accidentally mirror Recently Played.
-  const playedIds = new Set(played.map((g) => g.id));
-  added = added.filter((g) => !playedIds.has(g.id));
-  const result: Game[] = [],
-    seen = new Set<string>();
-  let p = 0,
-    a = 0;
-  const take = (list: Game[], index: number) => {
-    const game = list[index];
-    if (game && !seen.has(game.id)) {
+  // Reserve every played ID before mixing so even plays later in the stream
+  // cannot occupy an addition slot.
+  const seen = new Set<string>();
+  const uniquePlayed: Game[] = [];
+  for (const game of played) {
+    if (seen.has(game.id)) continue;
+    seen.add(game.id);
+    uniquePlayed.push(game);
+  }
+  const result: Game[] = [];
+  let p = 0;
+  let a = 0;
+  while (p < uniquePlayed.length || a < added.length) {
+    for (let i = 0; i < 3 && p < uniquePlayed.length; i++)
+      result.push(uniquePlayed[p++]);
+    while (a < added.length) {
+      const game = added[a++];
+      if (seen.has(game.id)) continue;
       seen.add(game.id);
       result.push(game);
+      break;
     }
-  };
-  while (p < played.length || a < added.length) {
-    for (let i = 0; i < 3 && p < played.length; ) {
-      const game = played[p++];
-      if (!seen.has(game.id)) {
-        seen.add(game.id);
-        result.push(game);
-        i++;
-      }
-    }
-    while (a < added.length && seen.has(added[a].id)) a++;
-    if (a < added.length) take(added, a++);
   }
   return result;
 }
@@ -65,33 +85,31 @@ export function buildHomeShelves(
   collections: GameCollection[],
   now = Date.now(),
   collectionGames?: Map<string, Game[]>,
+  readHours = mainExtraHours,
 ): HomeShelf[] {
-  const playedAt = new Map<string, number>();
-  const played: Game[] = [];
+  const plays: RankedGame[] = [],
+    releases: RankedGame[] = [],
+    shortTimes: RankedGame[] = [],
+    longTimes: RankedGame[] = [];
   for (const g of games) {
-    const date = recentSortAt(g);
-    if (date && date <= now) {
-      playedAt.set(g.id, date);
-      played.push(g);
-    }
+    const playedAt = recentSortAt(g);
+    if (playedAt && playedAt <= now) plays.push({ game: g, rank: playedAt });
+    const release = releaseSpan(g)?.[0];
+    if (release && release > 0 && release <= now)
+      releases.push({ game: g, rank: release });
+    const hours = g.enrichment?.hltb?.data?.extraHours ? readHours(g) : undefined;
+    if (hours && hours > 0 && hours <= 10)
+      shortTimes.push({ game: g, rank: hours });
+    else if (hours !== undefined && hours >= 30)
+      longTimes.push({ game: g, rank: hours });
   }
-  played.sort(
-    (a, b) => (playedAt.get(b.id)! - playedAt.get(a.id)!) || byTitle(a, b),
-  );
+  const played = plays.sort(descendingRank).map(({ game }) => game);
   const added = [...games].sort(
     (a, b) => b.addedAt - a.addedAt || byTitle(a, b),
   );
-  const dates = new Map(games.map((g) => [g.id, releaseSpan(g)?.[0]]));
-  const released = games
-    .filter((g) => dates.get(g.id)! > 0 && dates.get(g.id)! <= now)
-    .sort((a, b) => dates.get(b.id)! - dates.get(a.id)! || byTitle(a, b));
-  const hours = new Map(games.map((g) => [g.id, mainExtraHours(g)]));
-  const short = games
-    .filter((g) => hours.get(g.id)! > 0 && hours.get(g.id)! <= 10)
-    .sort((a, b) => hours.get(a.id)! - hours.get(b.id)! || byTitle(a, b));
-  const long = games
-    .filter((g) => hours.get(g.id)! >= 30)
-    .sort((a, b) => hours.get(b.id)! - hours.get(a.id)! || byTitle(a, b));
+  const released = releases.sort(descendingRank).map(({ game }) => game);
+  const short = shortTimes.sort(ascendingRank).map(({ game }) => game);
+  const long = longTimes.sort(descendingRank).map(({ game }) => game);
   return [
     {
       id: "activity",

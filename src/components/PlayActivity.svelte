@@ -5,8 +5,14 @@
   let {
     game,
     refreshing = false,
+    steamConnection,
     onrefresh,
-  }: { game: Game; refreshing?: boolean; onrefresh?: () => void } = $props();
+  }: {
+    game: Game;
+    refreshing?: boolean;
+    steamConnection: "connected" | "disconnected" | "reconnect";
+    onrefresh?: () => void;
+  } = $props();
   let summary = $derived(activity(game));
   let hasSteam = $derived(
     game.copies.some((c) => c.source === "steam") || !!summary?.steam,
@@ -45,8 +51,11 @@
         <h3>
           Steam {#if onrefresh}<button
               class="text-button"
-              disabled={refreshing}
-              onclick={onrefresh}
+              aria-disabled={refreshing}
+              aria-label="Refresh Steam play history"
+              onclick={() => {
+                if (!refreshing) onrefresh?.();
+              }}
               ><RefreshCw
                 size={12}
                 class={refreshing ? "spin" : ""}
@@ -77,11 +86,18 @@
             <dd>{hours(summary?.steam?.recentMinutes)}</dd>
           </div>
         </dl>
-        <p>
-          {summary?.steam
-            ? `Steam snapshot: ${date(summary.steam.checkedAt)}`
-            : "Connect Steam and make your game details visible to import activity."}
-        </p>
+        {#if summary?.steam}
+          <p>Steam snapshot: {date(summary.steam.checkedAt)}</p>
+        {/if}
+        {#if steamConnection === "reconnect"}
+          <p>Reconnect Steam in Sources to refresh play history.</p>
+        {:else if !summary?.steam}
+          <p>
+            {steamConnection === "connected"
+              ? "No Steam play history imported for this game. Check your Steam game details visibility if you expect activity here."
+              : "Connect Steam in Sources to import play history."}
+          </p>
+        {/if}
       </div>{/if}
   </div>
 </section>
@@ -95,7 +111,7 @@
   }
   .activity-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
     gap: 12px;
   }
   .activity-card {
@@ -129,8 +145,8 @@
   .activity-card dd {
     margin: 0;
     text-align: right;
-    white-space: nowrap;
-    flex-shrink: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-variant-numeric: tabular-nums;
   }
   .activity-card p {
@@ -141,5 +157,9 @@
   }
   .activity-card .text-button {
     font-size: 10px;
+  }
+  .activity-card .text-button[aria-disabled="true"] {
+    opacity: 0.6;
+    cursor: default;
   }
 </style>

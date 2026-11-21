@@ -1,5 +1,9 @@
 <script lang="ts">
+  import { ChevronLeft, ChevronRight, Search, X } from "@lucide/svelte";
+  import { searchText } from "../lib/search-index";
   import type { BanishedGame } from "../lib/banishment";
+  import { onMount, tick } from "svelte";
+
   let {
     entries,
     busy = false,
@@ -7,126 +11,256 @@
   }: {
     entries: BanishedGame[];
     busy?: boolean;
-    onrestore: (ids: string[]) => void;
+    onrestore: (ids: string[]) => Promise<void>;
   } = $props();
-  let query = $state(""),
-    selected = $state.raw(new Set<string>());
-  $effect(() => {
-    const live = new Set(entries.map((b) => b.id));
-    if ([...selected].some((id) => !live.has(id)))
-      selected = new Set([...selected].filter((id) => live.has(id)));
+
+  const pageSize = 24;
+  let query = $state("");
+  let requestedPage = $state(0);
+  let selected = $state.raw(new Set<string>());
+  let list = $state<HTMLUListElement>();
+  let searchInput: HTMLInputElement;
+  let liveIds = $derived(new Set(entries.map((entry) => entry.id)));
+  let searchable = $derived(
+    entries.map((entry) => ({ entry, title: searchText(entry.title) })),
+  );
+  let needle = $derived(searchText(query).trim());
+  let matches = $derived.by(() => {
+    if (!needle) return entries;
+    const matching: BanishedGame[] = [];
+    for (const { entry, title } of searchable)
+      if (title.includes(needle)) matching.push(entry);
+    return matching;
   });
-  let top = $state(0);
-  let list = $state<HTMLDivElement>();
-  let start = $derived(Math.max(0, Math.floor(top / 38) - 5));
+  let lastPage = $derived(Math.max(0, Math.ceil(matches.length / pageSize) - 1));
+  let page = $derived(Math.min(requestedPage, lastPage));
+  let start = $derived(page * pageSize);
+  let shown = $derived(matches.slice(start, start + pageSize));
+  let outsideSearch = $derived.by(() => {
+    if (!needle || !selected.size) return 0;
+    let count = selected.size;
+    for (const entry of matches)
+      if (selected.has(entry.id) && --count === 0) break;
+    return count;
+  });
+
+  onMount(() => {
+    void tick().then(() => searchInput?.focus());
+  });
+
   $effect(() => {
-    void query;
-    top = 0;
+    for (const id of selected) {
+      if (!liveIds.has(id)) {
+        selected = new Set([...selected].filter((id) => liveIds.has(id)));
+        break;
+      }
+    }
+  });
+
+  $effect(() => {
+    void matches;
+    void start;
     if (list) list.scrollTop = 0;
   });
-  let visible = $derived(
-    entries.filter((b) => b.title.toLowerCase().includes(query.toLowerCase())),
-  );
+
+  function clearSearch() {
+    query = "";
+    requestedPage = 0;
+    searchInput?.focus();
+  }
+
+  function changePage(step: number) {
+    const next = page + step;
+    if (next >= 0 && next <= lastPage) requestedPage = next;
+  }
+
+  function toggle(id: string, checked: boolean) {
+    const next = new Set(selected);
+    if (checked) next.add(id);
+    else next.delete(id);
+    selected = next;
+  }
+
+  async function restoreSelected() {
+    await onrestore([...selected]);
+    await tick();
+    searchInput?.focus();
+  }
 </script>
 
 <div class="banished-manager">
   <p class="field-hint">
-    These games are blocked from every library and scan. Restore them to
+    Banished games are blocked from library scans and imports. Unbanish a game to
     download fresh metadata and artwork.
   </p>
-  <div class="banished-controls">
+  <div class="library-search banished-search">
+    <Search size={15} aria-hidden="true" />
     <input
+      type="search"
       aria-label="Search banished games"
       placeholder="Search banished games…"
+      autocomplete="off"
       bind:value={query}
-    /><button
-      class="text-button"
+      bind:this={searchInput}
       disabled={busy}
-      onclick={() => (selected = new Set(visible.map((b) => b.id)))}
-      >Select all shown</button
-    ><button class="text-button" onclick={() => (selected = new Set())}
-      >Clear</button
-    >
+      oninput={() => (requestedPage = 0)}
+      onkeydown={(event) => {
+        if (event.key !== "Escape" || event.isComposing || !query) return;
+        event.preventDefault();
+        event.stopPropagation();
+        clearSearch();
+      }}
+    />
+    {#if query}
+      <button
+        type="button"
+        aria-label="Clear banished game search"
+        title="Clear search (Esc)"
+        disabled={busy}
+        onclick={clearSearch}><X size={14} /></button
+      >
+    {/if}
   </div>
-  <div
-    class="banished-list"
-    bind:this={list}
-    onscroll={(event) => (top = event.currentTarget.scrollTop)}
-  >
-    <div class="banished-space" style:height={`${visible.length * 38}px`}>
-      {#each visible.slice(start, start + 32) as entry, index (entry.id)}<label
-          class="banished-row"
-          style:top={`${(start + index) * 38}px`}
-          ><input
-            type="checkbox"
-            disabled={busy}
-            checked={selected.has(entry.id)}
-            aria-label={`Restore ${entry.title}`}
-            onchange={(event) => {
-              const next = new Set(selected);
-              event.currentTarget.checked
-                ? next.add(entry.id)
-                : next.delete(entry.id);
-              selected = next;
-            }}
-          /><span title={entry.title}>{entry.title}</span><small
-            >{new Date(entry.banishedAt).toLocaleDateString()}</small
-          ></label
-        >{:else}<p class="field-hint">
-          {entries.length ? "No matching games" : "No banished games"}
-        </p>{/each}
+
+  <div class="banished-controls">
+    <div class="selection-actions">
+      <button
+        class="text-button"
+        disabled={busy || !matches.length}
+        onclick={() => (selected = new Set(matches.map((entry) => entry.id)))}
+        >{needle ? "Select all matches" : "Select all games"}</button
+      >
+      <button
+        class="text-button"
+        disabled={busy || !selected.size}
+        onclick={() => {
+          selected = new Set();
+          searchInput?.focus();
+        }}>Clear selection</button
+      >
+    </div>
+    <div class="banished-pages">
+      <span role="status">
+        {#if lastPage}
+          {(start + 1).toLocaleString()}–{(start + shown.length).toLocaleString()} of
+          {matches.length.toLocaleString()}
+        {:else}
+          {matches.length} {matches.length === 1 ? "game" : "games"}
+        {/if}
+      </span>
+      {#if lastPage}
+        <button
+          class="icon-button"
+          aria-label="Previous page of banished games"
+          aria-disabled={page === 0}
+          disabled={busy}
+          onclick={() => changePage(-1)}><ChevronLeft size={16} /></button
+        >
+        <button
+          class="icon-button"
+          aria-label="Next page of banished games"
+          aria-disabled={page === lastPage}
+          disabled={busy}
+          onclick={() => changePage(1)}><ChevronRight size={16} /></button
+        >
+      {/if}
     </div>
   </div>
+
+  {#if shown.length}
+    <ul class="banished-list" aria-label="Banished games" bind:this={list}>
+      {#each shown as entry (entry.id)}
+        <li>
+          <label class="banished-row">
+            <input
+              type="checkbox"
+              disabled={busy}
+              checked={selected.has(entry.id)}
+              aria-label={`Restore ${entry.title}`}
+              onchange={(event) => toggle(entry.id, event.currentTarget.checked)}
+            />
+            <span title={entry.title}>{entry.title}</span>
+            <small>{new Date(entry.banishedAt).toLocaleDateString()}</small>
+          </label>
+        </li>
+      {/each}
+    </ul>
+  {:else}
+    <p class="banished-empty field-hint">
+      {entries.length ? "No matching games" : "No banished games"}
+    </p>
+  {/if}
+
   <div class="dialog-actions">
-    <span>{selected.size} selected</span><button
+    <span role="status">
+      {selected.size.toLocaleString()} selected
+      {#if outsideSearch}<small>{outsideSearch.toLocaleString()} outside this search</small>{/if}
+    </span>
+    <button
       class="primary-button"
       disabled={busy || !selected.size}
-      onclick={() => onrestore([...selected])}
+      onclick={restoreSelected}
       >{busy ? "Restoring…" : "Unbanish selected"}</button
     >
   </div>
 </div>
 
 <style>
-  .banished-controls {
-    display: flex;
-    gap: 12px;
-    margin: 18px 0;
+  .banished-search {
+    margin-top: 16px;
+    width: 100%;
   }
-  .banished-controls input {
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    padding: 10px;
-    flex: 1;
-    min-width: 0;
+  .banished-search input::-webkit-search-cancel-button {
+    display: none;
+  }
+  .banished-controls,
+  .selection-actions,
+  .banished-pages {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .banished-controls {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    margin: 8px 0;
+    min-height: 32px;
+  }
+  .selection-actions {
+    gap: 12px;
+  }
+  .banished-pages {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .banished-pages button[aria-disabled="true"] {
+    color: var(--faint);
+    cursor: default;
   }
   .banished-list {
-    height: min(52vh, 560px);
-    overflow: auto;
-    border-block: 1px solid var(--line);
+    list-style: none;
+    margin: 0;
+    padding: 3px;
+    max-height: min(360px, 44dvh);
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 7px;
   }
-  .banished-space {
-    position: relative;
-    min-height: 38px;
+  .banished-empty {
+    padding: 12px 4px;
   }
   .banished-row {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 38px;
+    min-height: 38px;
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 9px 4px;
-    border-bottom: 1px solid var(--line);
+    padding: 8px;
+    border-radius: 4px;
     font-size: 13px;
     cursor: pointer;
   }
   .banished-row span {
     flex: 1;
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -135,13 +269,24 @@
     color: var(--muted);
     flex-shrink: 0;
   }
-  .banished-row:hover {
+  .banished-row:hover,
+  .banished-row:has(:checked) {
     background: var(--surface-hover);
+  }
+  .banished-row:has(:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .dialog-actions {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-top: 18px;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .dialog-actions small {
+    display: block;
+    margin-top: 4px;
+    color: var(--muted);
   }
 </style>

@@ -191,7 +191,7 @@ export function validateGroups(groups: SmartGroup[]): SmartGroup[] {
   });
 }
 interface Facts {
-  tags: Set<string>;
+  tags?: Set<string>;
   size?: number;
   hltb?: number;
   rating?: number;
@@ -199,18 +199,31 @@ interface Facts {
   played?: [number, number];
   added?: [number, number];
 }
-function facts(game: Game, now: number, needed: Set<RuleField>): Facts {
+function facts(
+  game: Game,
+  now: number,
+  needed: Set<RuleField>,
+  normalizedTag: (raw: string) => string,
+): Facts {
   const time = (value: number | undefined): [number, number] | undefined =>
     value && Number.isFinite(value) && value > 0 && value <= now
       ? [value, value]
       : undefined;
   const size = needed.has("size") ? installedBytes(game) : undefined;
+  let tags: Set<string> | undefined;
+  if (needed.has("tags")) {
+    tags = new Set();
+    for (const raw of game.genres) {
+      const key = normalizedTag(raw);
+      if (key) tags.add(key);
+    }
+    for (const raw of game.tags ?? []) {
+      const key = normalizedTag(raw);
+      if (key) tags.add(key);
+    }
+  }
   return {
-    tags: new Set(
-      needed.has("tags")
-        ? [...game.genres, ...(game.tags ?? [])].map(tagKey).filter(Boolean)
-        : [],
-    ),
+    tags,
     size: size === undefined ? undefined : size / GIB,
     rating: needed.has("rating") ? consensusScore(game) : undefined,
     hltb: needed.has("hltb") ? mainExtraHours(game) : undefined,
@@ -262,16 +275,17 @@ function compileCondition(c: SmartCondition): CompiledCondition {
 function matches(f: Facts, compiled: CompiledCondition, now: number): boolean {
   const { c } = compiled;
   if (c.field === "tags") {
-    if (c.op === "known") return f.tags.size > 0;
-    if (c.op === "unknown") return !f.tags.size;
+    const gameTags = f.tags!;
+    if (c.op === "known") return gameTags.size > 0;
+    if (c.op === "unknown") return !gameTags.size;
     const tags = compiled.tags ?? [];
     if (!tags.length) return false;
     return c.op === "hasAny"
-      ? tags.some((t) => f.tags.has(t))
+      ? tags.some((t) => gameTags.has(t))
       : c.op === "hasAll"
-        ? tags.every((t) => f.tags.has(t))
+        ? tags.every((t) => gameTags.has(t))
         : c.op === "hasNone"
-          ? tags.every((t) => !f.tags.has(t))
+          ? tags.every((t) => !gameTags.has(t))
           : false;
   }
   const value = f[c.field];
@@ -316,47 +330,125 @@ function matches(f: Facts, compiled: CompiledCondition, now: number): boolean {
         start >= low &&
         end < high + DAY;
 }
-export function groupGames(
+
+function tagNormalizer() {
+  // Reuse normalization for repeating labels within one library snapshot.
+  const keys = new Map<string, string>();
+  return (raw: string) => {
+    let key = keys.get(raw);
+    if (key === undefined) {
+      key = tagKey(raw);
+      keys.set(raw, key);
+    }
+    return key;
+  };
+}
+
+function compileSmartGroups(rules: SmartGroup[], now: number) {
+  const needed = new Set<RuleField>();
+  const compiled = rules.map((rule) => ({
+    match: rule.match,
+    conditions: rule.conditions.map((condition) => {
+      needed.add(condition.field);
+      return compileCondition(condition);
+    }),
+  }));
+  return {
+    needed,
+    indexOf: (f: Facts) =>
+      compiled.findIndex(
+        ({ match, conditions }) =>
+          conditions.length &&
+          (match === "all"
+            ? conditions.every((c) => matches(f, c, now))
+            : match === "any" && conditions.some((c) => matches(f, c, now))),
+      ),
+  };
+}
+
+function smartGroupIndex(
+  rules: SmartGroup[],
+  now: number,
+  normalizedTag: (raw: string) => string,
+) {
+  const { needed, indexOf } = compileSmartGroups(rules, now);
+  return (game: Game) => indexOf(facts(game, now, needed, normalizedTag));
+}
+
+// The editor creates a new preview builder whenever the library snapshot or
+// clock changes. Keep only the most recent set of fields while editing rules.
+export function createSmartGroupPreview(games: Game[], now: number) {
+  const normalize = tagNormalizer();
+  let cachedFields = "";
+  let cachedFacts: Facts[] = [];
+  return (rules: SmartGroup[], targetId: string, sampleLimit: number) => {
+    const sample: Game[] = [];
+    const target = rules.findIndex((rule) => rule.id === targetId);
+    if (target < 0) return { count: 0, sample };
+
+    // Earlier rules take precedence. Later rules cannot affect this collection.
+    const { needed, indexOf } = compileSmartGroups(
+      rules.slice(0, target + 1),
+      now,
+    );
+    const fields = [...needed].sort().join(",");
+    if (cachedFields !== fields) {
+      cachedFields = fields;
+      cachedFacts = [];
+    }
+    let count = 0;
+    for (let i = 0; i < games.length; i++) {
+      const game = games[i];
+      const f = (cachedFacts[i] ??= facts(game, now, needed, normalize));
+      if (indexOf(f) !== target) continue;
+      count++;
+      if (sample.length < sampleLimit) sample.push(game);
+    }
+    return { count, sample };
+  };
+}
+
+function measurementBuckets(
+  mode: "hltb" | "size",
+  limits: number[],
+  unit: string,
+) {
+  const names = [
+    `Under ${limits[0]} ${unit}`,
+    ...limits.slice(1).map((limit, i) => `${limits[i]}–${limit} ${unit}`),
+    `${limits[limits.length - 1]}+ ${unit}`,
+    mode === "hltb" ? "No HLTB time" : "Size unknown",
+  ];
+  return {
+    limits,
+    buckets: names.map((name, i) => ({ id: `${mode}:${i}`, name })),
+  };
+}
+
+const measurementGroups = {
+  hltb: measurementBuckets("hltb", [10, 25, 50, 100], "h"),
+  size: measurementBuckets("size", [1, 10, 50, 100], "GiB"),
+};
+
+function visitGroups(
   games: Game[],
   mode: GroupMode,
-  rules: SmartGroup[] = [],
-  now = Date.now(),
-): LibraryGroup[] {
-  if (mode === "none") return [];
-  const groups = new Map<string, LibraryGroup>(),
-    order = new Map<string, number>();
-  const needed = new Set(
-    rules.flatMap((g) => g.conditions.map((c) => c.field)),
-  );
-  const compiledRules =
-    mode === "smart"
-      ? rules.map((g) => ({
-          group: g,
-          conditions: (g.conditions ?? []).map(compileCondition),
-        }))
-      : [];
-  const add = (id: string, name: string, game: Game, index: number) => {
-    let group = groups.get(id);
-    if (!group) {
-      group = { id, name, games: [] };
-      groups.set(id, group);
-      order.set(id, index);
-    }
-    group.games.push(game);
-  };
+  rules: SmartGroup[],
+  now: number,
+  add: (id: string, name: string, game: Game, index: number) => void,
+) {
+  if (mode === "none") return;
+  const normalizedTag = tagNormalizer();
+  const indexOfSmartGroup =
+    mode === "smart" ? smartGroupIndex(rules, now, normalizedTag) : undefined;
+  const smartIds = indexOfSmartGroup
+    ? rules.map((rule) => `smart:${rule.id}`)
+    : [];
   for (const game of games) {
-    if (mode === "smart") {
-      const f = facts(game, now, needed);
-      const index = compiledRules.findIndex(
-        ({ group: g, conditions }) =>
-          conditions.length &&
-          (g.match === "all"
-            ? conditions.every((c) => matches(f, c, now))
-            : g.match === "any" &&
-              conditions.some((c) => matches(f, c, now))),
-      );
+    if (indexOfSmartGroup) {
+      const index = indexOfSmartGroup(game);
       add(
-        index < 0 ? "other" : `smart:${rules[index].id}`,
+        index < 0 ? "other" : smartIds[index],
         index < 0 ? "Other" : rules[index].name,
         game,
         index < 0 ? rules.length : index,
@@ -364,9 +456,10 @@ export function groupGames(
       continue;
     }
     if (mode === "tags") {
-      const tag = [...game.genres, ...(game.tags ?? [])].find((t) => tagKey(t));
+      const tag =
+        game.genres.find(normalizedTag) ?? game.tags?.find(normalizedTag);
       add(
-        `tag:${tag ? tagKey(tag) : "unknown"}`,
+        `tag:${tag ? normalizedTag(tag) : "unknown"}`,
         tag ?? "Untagged",
         game,
         tag ? 0 : 1,
@@ -421,22 +514,12 @@ export function groupGames(
           : bytes === undefined
             ? undefined
             : bytes / GIB;
-      const limits = mode === "hltb" ? [10, 25, 50, 100] : [1, 10, 50, 100];
-      const unit = mode === "hltb" ? "h" : "GiB";
-      const index =
-        value === undefined ? 5 : limits.findIndex((n) => value < n);
-      const bucket = index === -1 ? 4 : index;
-      const name =
-        value === undefined
-          ? mode === "hltb"
-            ? "No HLTB time"
-            : "Size unknown"
-          : bucket === 0
-            ? `Under ${limits[0]} ${unit}`
-            : bucket === 4
-              ? `${limits[3]}+ ${unit}`
-              : `${limits[bucket - 1]}–${limits[bucket]} ${unit}`;
-      add(`${mode}:${bucket}`, name, game, bucket);
+      const { limits, buckets } = measurementGroups[mode];
+      let index = 0;
+      if (value === undefined) index = limits.length + 1;
+      else while (index < limits.length && value >= limits[index]) index++;
+      const { id, name } = buckets[index];
+      add(id, name, game, index);
       continue;
     }
     const date = mode === "played" ? recentSortAt(game) : game.addedAt;
@@ -469,6 +552,37 @@ export function groupGames(
                 : "Date added unknown";
     add(`${mode}:${bucket}`, name, game, bucket);
   }
+}
+
+export function collectGroupMemberIds(
+  games: Game[],
+  mode: GroupMode,
+  rules: SmartGroup[],
+  now: number,
+  selectedGroups: ReadonlyMap<string, string[]>,
+) {
+  visitGroups(games, mode, rules, now, (id, _name, game) => {
+    selectedGroups.get(id)?.push(game.id);
+  });
+}
+
+export function groupGames(
+  games: Game[],
+  mode: GroupMode,
+  rules: SmartGroup[] = [],
+  now = Date.now(),
+): LibraryGroup[] {
+  const groups = new Map<string, LibraryGroup>(),
+    order = new Map<string, number>();
+  visitGroups(games, mode, rules, now, (id, name, game, index) => {
+    let group = groups.get(id);
+    if (!group) {
+      group = { id, name, games: [] };
+      groups.set(id, group);
+      order.set(id, index);
+    }
+    group.games.push(game);
+  });
   return [...groups.values()].sort(
     (a, b) =>
       order.get(a.id)! - order.get(b.id)! || a.name.localeCompare(b.name),

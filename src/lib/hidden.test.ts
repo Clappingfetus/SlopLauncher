@@ -115,7 +115,15 @@ describe("hidden game state", () => {
     ).toEqual(["future"]);
     expect(folders[0].gameIds).toEqual([original.id, late.id]);
     expect(games[0].favorite).toBe(true);
-    expect(collectionCounts(folders, games).get("weekend")).toBe(2);
+    const index = new Map(games.map((game) => [game.id, game]));
+    expect(collectionCounts(folders, (id) => index.has(id)).get("weekend")).toBe(
+      2,
+    );
+    const visibleCounts = collectionCounts(folders, (id) => {
+      const game = index.get(id);
+      return !!game && !game.hidden;
+    });
+    expect(visibleCounts.get("weekend")).toBe(1);
     expect(
       filterGames(
         games,

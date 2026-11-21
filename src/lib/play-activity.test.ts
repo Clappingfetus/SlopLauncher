@@ -134,6 +134,57 @@ it("does not invent an exact last-played date for Steam's recent-only response",
       .games.map((g) => g.id),
   ).toEqual([game.id]);
 });
+it("keeps legacy local activity when a rematch invalidates Steam history", () => {
+  const original = {
+    ...fixture(),
+    launcherActivity: undefined,
+    steamActivity: [snapshot({ lastPlayedAt: undefined })],
+  };
+  const rematched = {
+    ...original,
+    copies: [{ ...original.copies[0], sourceId: "101" }],
+  };
+  const unplayed = {
+    ...rematched,
+    id: "steam:102",
+    lastPlayed: undefined,
+    steamActivity: [],
+  };
+  expect(recentSortAt(original, "steam")).toBe(now - 14 * 86400000);
+  expect(recentSortAt(rematched, "steam")).toBeUndefined();
+  expect(recentSortAt(rematched, "launcher")).toBe(original.lastPlayed);
+  expect(recentSortAt({ ...rematched, steamActivity: [] })).toBe(
+    original.lastPlayed,
+  );
+  expect(recentSortAt(unplayed)).toBeUndefined();
+});
+it("keeps unchanged history stable and updates valid late copies without reviving stale Steam data", () => {
+  const existing = { ...fixture(), steamActivity: [snapshot()] };
+  const games = [existing];
+  expect(applySteamHistory(games, [])).toBe(games);
+  const late = {
+    ...fixture(),
+    id: "steam:102",
+    copies: [{ ...existing.copies[0], id: "steam:102", sourceId: "102" }],
+  };
+  const update = {
+    gameId: late.id,
+    activities: [snapshot({ copyId: "steam:102", appId: 102 })],
+  };
+  expect(applySteamHistory(games, [update])).toBe(games);
+  const added = applySteamHistory([...games, late], [update]);
+  expect(added[0]).toBe(existing);
+  expect(summarizeActivity([added[1]])?.steam).toEqual(update.activities[0]);
+  expect(applySteamHistory(added, [update])).toBe(added);
+  const rematched = {
+    ...added[1],
+    copies: [{ ...late.copies[0], sourceId: "103" }],
+  };
+  expect(summarizeActivity([rematched])?.steam).toBeUndefined();
+  const cleaned = applySteamHistory([existing, rematched], [update]);
+  expect(cleaned[1].steamActivity).toBeUndefined();
+  expect(cleaned[1].launcherActivity).toBe(late.launcherActivity);
+});
 it("source imports update Steam statistics without replacing local history or carrying another account's snapshot", () => {
   const original = { ...fixture(), steamActivity: [snapshot()] };
   const incoming = {

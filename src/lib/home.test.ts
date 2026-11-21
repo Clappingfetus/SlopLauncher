@@ -1,6 +1,7 @@
 import { it, expect } from "vitest";
 import {
   buildHomeShelves,
+  createHomeShelfBuilder,
   homeCollectionMembers,
   recentActivity,
   orderHomeShelves,
@@ -141,6 +142,25 @@ it("keeps saved ordering through additions and deletions, and moves rows before 
   );
 });
 
+it("refreshes shelf ranks for rematches and applies the current clock on cached ranks", () => {
+  const build = createHomeShelfBuilder();
+  const future = game("future", now + 1, 1, undefined, now + 1);
+  const original = game("original", now - 10, 1, 4);
+  const compare = (games: Game[], time: number) => {
+    const shelves = build(games, [], time);
+    expect(shelves).toEqual(buildHomeShelves(games, [], time));
+    return new Map(shelves.map((shelf) => [shelf.id, shelf.games]));
+  };
+  expect(compare([original, future], now).get("released")).toEqual([]);
+  const late = game("late", 0, 2, 5);
+  const rematched = { ...original, title: "Other edition" };
+  const changed = compare([rematched, future, late], now + 1);
+  expect(changed.get("short")).toEqual([late]);
+  expect(changed.get("released")).toEqual([future]);
+  expect(changed.get("played")).toEqual([future, rematched]);
+  expect(compare([future, late], now + 1).get("played")).toEqual([future]);
+});
+
 it("keeps the activity shelf mixed when the latest additions were already played", () => {
   const played = Array.from({ length: 8 }, (_, i) => game(`played-${i}`));
   const fresh = game("new-unplayed");
@@ -149,4 +169,11 @@ it("keeps the activity shelf mixed when the latest additions were already played
       .slice(0, 4)
       .map((g) => g.id),
   ).toEqual(["played-0", "played-1", "played-2", "new-unplayed"]);
+});
+
+it("skips repeated plays and additions without consuming a slot", () => {
+  const [a, b, c, d, e, f] = ["a", "b", "c", "d", "e", "f"].map((id) => game(id));
+  expect(recentActivity([a, a, b, c, d], [d, e, e, f])).toEqual([
+    a, b, c, e, d, f,
+  ]);
 });

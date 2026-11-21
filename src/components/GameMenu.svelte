@@ -133,7 +133,7 @@
             ? items.length - 1
             : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) %
               items.length;
-      items[next]?.focus({ preventScroll: true });
+      items[next]?.focus();
     } else if (event.key === "Tab") dismiss(true);
   }
   $effect(() => {
@@ -228,13 +228,13 @@
     >
     <div class="collection-menu-list">
       {#each collections as collection (collection.id)}
+        {@const included = batchCount <= 1 && collection.gameIds.includes(gameId)}
         <button
           role="menuitem"
-          disabled={!!collection.rule ||
-            (batchCount <= 1 && collection.gameIds.includes(gameId))}
+          disabled={!!collection.rule || included}
           title={collection.rule
             ? "Automatic collection: membership follows its saved rules"
-            : batchCount <= 1 && collection.gameIds.includes(gameId)
+            : included
               ? "Already in this collection"
               : `Add to ${collection.name}`}
           onclick={() => {
@@ -246,12 +246,12 @@
             >{collection.name}<small
               >{collection.rule
                 ? "Automatic"
-                : batchCount <= 1 && collection.gameIds.includes(gameId)
+                : included
                   ? "Already added"
                   : ""}</small
             ></span
           >
-          {#if batchCount <= 1 && collection.gameIds.includes(gameId)}<Check
+          {#if included}<Check
               size={14}
             />{/if}
         </button>

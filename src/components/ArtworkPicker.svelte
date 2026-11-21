@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Check, Image, LoaderCircle } from "@lucide/svelte";
   import Cover from "./Cover.svelte";
-  import { untrack } from "svelte";
+  import { onDestroy, untrack } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { currentResult } from "../lib/enrichment";
   import { isEmulated, selectedArtwork } from "../lib/artwork";
   import type { Game, ArtworkAsset, ArtworkChoice } from "../lib/types";
@@ -24,6 +25,22 @@
   let slot = $state<"cover" | "hero">(untrack(() => initialSlot));
   let grid = $derived(currentResult(game, "steamgriddb", revision));
   let chosen = $derived(selectedArtwork(game, slot));
+  const visiblePreviews = new SvelteSet<string>();
+  let observer: IntersectionObserver | undefined;
+  function observePreview(node: HTMLElement) {
+    observer ??= new IntersectionObserver((entries, current) => {
+      for (const entry of entries) {
+        const url = (entry.target as HTMLElement).dataset.preview;
+        if (url && entry.isIntersecting && entry.target.isConnected) {
+          visiblePreviews.add(url);
+          current.unobserve(entry.target);
+        }
+      }
+    });
+    observer.observe(node);
+    return { destroy: () => observer?.unobserve(node) };
+  }
+  onDestroy(() => observer?.disconnect());
   let options = $derived.by(() => {
     const choices: (ArtworkAsset & {
       source: ArtworkChoice["source"];
@@ -128,13 +145,20 @@
           aria-label={`Use ${option.label} ${slot === "cover" ? "box art" : "background"}${option.author ? ` by ${option.author}` : ""}`}
           onclick={() => onselect(slot, option)}
         >
-          <span class="artwork-thumbnail"
-            ><Cover
-              game={{ ...game, cover: option.url, hero: option.url }}
-              hero={slot === "hero"}
-              thumbnail={slot === "hero" ? 512 : 256}
-            /></span
+          <span
+            class="artwork-thumbnail"
+            data-preview={option.url}
+            use:observePreview
           >
+            {#if visiblePreviews.has(option.url)}
+              <Cover
+                {game}
+                preview={option.url}
+                hero={slot === "hero"}
+                thumbnail={slot === "hero" ? 512 : 256}
+              />
+            {/if}
+          </span>
           <span class="artwork-caption"
             ><span>{option.label}<small>{option.author ?? ""}</small></span
             >{#if chosen?.url === option.url}<Check size={16} />{/if}</span
@@ -154,7 +178,13 @@
 
 <style>
   .artwork-picker {
-    padding: 0 0 4px;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
+    scroll-padding-block: 8px;
+    padding: 4px;
+    margin-inline: -4px;
   }
   .artwork-policy {
     font-size: 13px;
@@ -248,6 +278,10 @@
     border-color: var(--accent);
     box-shadow: 0 0 0 1px var(--accent);
   }
+  .artwork-option:focus-visible {
+    outline: 2px solid var(--text);
+    outline-offset: 2px;
+  }
   .artwork-thumbnail {
     display: block;
     aspect-ratio: 2/3;
@@ -260,7 +294,7 @@
   .artwork-thumbnail :global(img) {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
   }
   .artwork-caption {
     display: flex;

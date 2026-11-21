@@ -7,7 +7,7 @@ import { consensusScore } from "./ratings";
 import type { AccountSource, Game, GameCollection, Source } from "./types";
 import { isCollectionFilter, type CollectionFilter } from "./collections";
 import { tagKey } from "./tags";
-import { searchIndex, searchText } from "./search-index";
+import { matchesSearch, searchIndex, searchWords } from "./search-index";
 import { mainExtraHours, releaseSpan } from "./game-facts";
 import { artworkIdentity } from "./artwork";
 export const sortOptions = [
@@ -36,7 +36,7 @@ export function matchGames(
   const members = isCollectionFilter(filter)
     ? new Set(collections.find((c) => c.id === filter.slice(11))?.gameIds ?? [])
     : null;
-  const words = searchText(query).trim().split(/\s+/).filter(Boolean);
+  const words = searchWords(query);
   const selectedTag = tagKey(tag);
   return games.filter((g) => {
     if (filter === "hidden" ? !g.hidden : g.hidden && !showHiddenGames)
@@ -53,7 +53,7 @@ export function matchGames(
       (!selectedTag || searchIndex(g).tags.has(selectedTag));
     if (!matches || !words.length) return matches;
     const text = searchIndex(g).text;
-    return words.every((w) => text.includes(w));
+    return matchesSearch(text, words);
   });
 }
 export function sortGames(
@@ -61,38 +61,35 @@ export function sortGames(
   sort: string,
   activitySource: ActivitySource = "all",
 ): Game[] {
-  const result = [...games];
-  // Validate/provider-decode once per game, rather than inside O(n log n) comparisons.
-  const times = sort.startsWith("hltb-")
-    ? new Map(result.map((g) => [g.id, mainExtraHours(g)]))
+  // Resolve ranks once, including the sort direction, so comparisons only read numbers.
+  const rank = sort.startsWith("hltb-")
+    ? mainExtraHours
     : sort.startsWith("rating-")
-      ? new Map(result.map((g) => [g.id, consensusScore(g)]))
+      ? consensusScore
       : sort === "year"
-        ? new Map(result.map((g) => [g.id, releaseSpan(g)?.[0]]))
-        : undefined;
-  const recent =
-    sort === "recent"
-      ? new Map(result.map((g) => [g.id, recentSortAt(g, activitySource) ?? 0]))
-      : undefined;
-  return result.sort((a, b) =>
-    times
-      ? (times.get(a.id) === undefined
-          ? times.get(b.id) === undefined
-            ? 0
-            : 1
-          : times.get(b.id) === undefined
-            ? -1
-            : (times.get(a.id)! - times.get(b.id)!) *
-              (sort === "year" || sort.endsWith("-desc") ? -1 : 1)) ||
-        a.title.localeCompare(b.title)
-      : recent
-        ? recent.get(b.id)! - recent.get(a.id)! ||
-          a.title.localeCompare(b.title)
-        : sort === "added"
-          ? b.addedAt - a.addedAt
-          : sort === "year"
-            ? (b.year ?? 0) - (a.year ?? 0) || a.title.localeCompare(b.title)
-            : a.title.localeCompare(b.title),
+        ? (g: Game) => releaseSpan(g)?.[0]
+        : sort === "recent"
+          ? (g: Game) => recentSortAt(g, activitySource)
+          : undefined;
+  if (rank) {
+    const direction =
+      sort === "year" || sort === "recent" || sort.endsWith("-desc") ? -1 : 1;
+    return games
+      .map((game) => {
+        const value = rank(game);
+        return { game, key: value === undefined ? Infinity : direction * value };
+      })
+      .sort((a, b) =>
+        a.key === b.key
+          ? a.game.title.localeCompare(b.game.title)
+          : a.key - b.key,
+      )
+      .map(({ game }) => game);
+  }
+  return [...games].sort(
+    sort === "added"
+      ? (a, b) => b.addedAt - a.addedAt
+      : (a, b) => a.title.localeCompare(b.title),
   );
 }
 export function filterGames(
@@ -125,27 +122,33 @@ export function filterGames(
 }
 export function mergeDiscovered(existing: Game[], incoming: Game[]): Game[] {
   if (!incoming.length) return existing;
-  const result = existing.map((g) => ({
-    ...g,
-    copies: g.copies.map((c) => ({ ...c })),
-  }));
-  const byCopy = new Map(
-    result.flatMap((g) => g.copies.map((c) => [c.id, g] as const)),
-  );
+  const result = existing.slice();
+  const byCopy = new Map<string, number>();
+  for (const [index, game] of existing.entries()) {
+    for (const copy of game.copies) byCopy.set(copy.id, index);
+  }
+  const changedSlots = new Set<number>();
   for (const game of incoming) {
-    if (!game.copies.length) continue;
     // A scan may contain multiple copies, including copies already owned by
     // separate records. Update each owner without merging personal game data.
-    const fallback = game.copies.map((c) => byCopy.get(c.id)).find(Boolean);
-    if (!fallback) {
+    const known = game.copies.find((c) => byCopy.has(c.id));
+    if (!known) {
+      if (!game.copies.length) continue;
       const added = { ...game, copies: game.copies.map((c) => ({ ...c })) };
+      for (const c of added.copies) byCopy.set(c.id, result.length);
       result.push(added);
-      for (const c of added.copies) byCopy.set(c.id, added);
       continue;
     }
+    const fallback = byCopy.get(known.id)!;
     const touched = new Set<Game>();
     for (const copy of game.copies) {
-      const found = byCopy.get(copy.id) ?? fallback;
+      const index = byCopy.get(copy.id) ?? fallback;
+      if (index < existing.length && !changedSlots.has(index)) {
+        const old = existing[index];
+        result[index] = { ...old, copies: old.copies.map((c) => ({ ...c })) };
+        changedSlots.add(index);
+      }
+      const found = result[index];
       const old = found.copies.find((c) => c.id === copy.id);
       const updated = old
         ? {
@@ -169,7 +172,7 @@ export function mergeDiscovered(existing: Game[], incoming: Game[]): Game[] {
       found.copies = old
         ? found.copies.map((c) => (c.id === copy.id ? updated : c))
         : [...found.copies, updated];
-      byCopy.set(copy.id, found);
+      byCopy.set(copy.id, index);
       touched.add(found);
     }
     for (const found of touched) {
@@ -178,7 +181,12 @@ export function mergeDiscovered(existing: Game[], incoming: Game[]): Game[] {
       if (!found.metadataLocked && game.hero) found.hero = game.hero;
     }
   }
-  return retainUnchanged(existing, result);
+  let changed = result.length !== existing.length;
+  for (const index of changedSlots) {
+    result[index] = retainUnchangedGame(existing[index], result[index]);
+    if (result[index] !== existing[index]) changed = true;
+  }
+  return changed ? result : existing;
 }
 export function preferredCopy(game: Game) {
   return (
@@ -316,21 +324,25 @@ function retainUnchanged(existing: Game[], result: Game[]): Game[] {
   const before = new Map(existing.map((g) => [g.id, g]));
   const stable = result.map((next) => {
     const old = before.get(next.id);
-    if (!old) return next;
-    if (JSON.stringify(old.copies) === JSON.stringify(next.copies))
-      next.copies = old.copies;
-    if (
-      JSON.stringify(old.storeMetadata) === JSON.stringify(next.storeMetadata)
-    )
-      next.storeMetadata = old.storeMetadata;
-    return [...new Set([...Object.keys(old), ...Object.keys(next)])].every(
-      (key) => old[key as keyof Game] === next[key as keyof Game],
-    )
-      ? old
-      : next;
+    return old ? retainUnchangedGame(old, next) : next;
   });
   return stable.length === existing.length &&
     stable.every((g, i) => g === existing[i])
     ? existing
     : stable;
+}
+
+function retainUnchangedGame(old: Game, next: Game): Game {
+  if (JSON.stringify(old.copies) === JSON.stringify(next.copies))
+    next.copies = old.copies;
+  if (
+    old.storeMetadata === next.storeMetadata ||
+    JSON.stringify(old.storeMetadata) === JSON.stringify(next.storeMetadata)
+  )
+    next.storeMetadata = old.storeMetadata;
+  return [...new Set([...Object.keys(old), ...Object.keys(next)])].every(
+    (key) => old[key as keyof Game] === next[key as keyof Game],
+  )
+    ? old
+    : next;
 }

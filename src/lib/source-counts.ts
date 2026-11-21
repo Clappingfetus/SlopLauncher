@@ -7,10 +7,10 @@ export function countGamesBySource(
 ): Map<Source, number> {
   const counts = new Map<Source, number>();
   for (const game of games) {
-    const seen = new Set<Source>();
+    const seen = game.copies.length > 1 ? new Set<Source>() : undefined;
     for (const copy of game.copies) {
-      if (seen.has(copy.source)) continue;
-      seen.add(copy.source);
+      if (seen?.has(copy.source)) continue;
+      seen?.add(copy.source);
       counts.set(copy.source, (counts.get(copy.source) ?? 0) + 1);
     }
   }

@@ -187,12 +187,42 @@ a {
   justify-content: space-between;
   gap: 12px;
 }
+.library-search.game-collection-search {
+  gap: 8px;
+  width: min(100%, 300px);
+  margin-bottom: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+}
+.library-search.game-collection-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.library-search.game-collection-search input {
+  min-height: 34px;
+  padding: 0;
+  font-size: 13px;
+}
+.game-collection-search input::-webkit-search-cancel-button {
+  display: none;
+}
+.game-collection-pages {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
 .game-collection-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 10px 22px;
   max-height: 200px;
   overflow-y: auto;
+  padding: 5px;
+  align-content: start;
+  scrollbar-width: thin;
 }
 .collection-check {
   display: flex;
@@ -233,22 +263,45 @@ a {
   gap: 8px;
 }
 .collection-editor .collection-search {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
+  width: 100%;
   margin-bottom: 12px;
 }
-.collection-search input {
-  min-width: 0;
+.collection-editor .collection-search input {
+  margin: 0;
+  padding: 2px 0;
+  font-size: 13px;
+}
+.collection-results {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.collection-pages {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.collection-pages button[aria-disabled="true"] {
+  color: var(--faint);
+  cursor: default;
 }
 .collection-game-list {
-  max-height: 310px;
+  max-height: clamp(140px, calc(100dvh - 470px), 310px);
   min-height: 100px;
   overflow-y: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px;
+}
+.collection-editor .dialog-footer {
+  position: static;
+  margin-top: 16px;
+  padding-top: 14px;
 }
 .collection-game-row {
   display: flex;
@@ -261,6 +314,13 @@ a {
 }
 .collection-game-row:hover {
   background: var(--surface-hover);
+}
+.collection-game-row:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.collection-game-row input:focus-visible {
+  outline: none;
 }
 .collection-game-row > span {
   display: flex;
@@ -696,13 +756,6 @@ textarea::placeholder {
   height: 4px;
   background: var(--faint);
 }
-.filter-count {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 11px;
-  padding: 0 4px;
-  border-radius: 2px;
-}
 .sort-control {
   display: flex;
   gap: 7px;
@@ -729,6 +782,19 @@ textarea::placeholder {
 .sort-control select option {
   background: var(--bg);
 }
+.recent-filter-pills {
+  flex-wrap: wrap;
+}
+.activity-history-control {
+  padding: 0 8px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  margin-left: 5px;
+}
+.activity-history-control select {
+  max-width: none;
+}
 .library-toolbar {
   flex-wrap: wrap;
 }
@@ -741,6 +807,10 @@ textarea::placeholder {
 }
 .library-layout-controls .sort-control select {
   max-width: 200px;
+}
+.library-layout-controls .jump-group-button {
+  font-size: 11px;
+  white-space: nowrap;
 }
 .library-group-heading {
   position: absolute;
@@ -761,6 +831,10 @@ textarea::placeholder {
   background: var(--line);
   flex: 1;
   margin-left: 4px;
+}
+.library-group-heading:focus-visible {
+  outline: none;
+  border-bottom: 2px solid var(--accent);
 }
 .group-count {
   font-size: 11px;
@@ -851,17 +925,40 @@ textarea::placeholder {
 }
 .expanded-filters {
   display: flex;
-  gap: 28px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   padding: 0 0 22px;
   align-items: center;
   font-size: 12px;
 }
-.expanded-filters label {
+.expanded-filters label,
+.tag-filter-control {
   display: flex;
   gap: 10px;
   align-items: center;
   color: var(--muted);
 }
+.tag-filter-control {
+  min-width: 0;
+  max-width: 100%;
+}
+.tag-filter-control button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  max-width: 220px;
+}
+.tag-filter-control button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-filter-control button svg {
+  flex-shrink: 0;
+}
+.tag-filter-control button,
 .expanded-filters select,
 .detail-actions select {
   background: var(--surface);
@@ -882,6 +979,35 @@ textarea::placeholder {
 }
 .expanded-filters .text-button {
   font-size: 11px;
+}
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 14px;
+}
+.active-filters button {
+  gap: 7px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.active-filter-label {
+  color: var(--muted);
+}
+.active-filters button:hover {
+  border-color: var(--accent);
+}
+.active-filters svg {
+  flex-shrink: 0;
 }
 .library-viewport {
   flex: 1;
@@ -1115,6 +1241,8 @@ textarea::placeholder {
 }
 .empty-state > div {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
   margin-top: 7px;
 }
@@ -1638,7 +1766,7 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  padding: 6px 7px 6px 0;
+  padding: 7px;
 }
 .more-tags {
   font-size: 11px;
@@ -1775,6 +1903,9 @@ dialog {
 dialog::backdrop {
   background: #07090bb8;
   backdrop-filter: blur(7px);
+}
+dialog.option-picker-dialog {
+  margin-block: max(24px, calc((100dvh - 525px) / 2)) auto;
 }
 .dialog-header {
   position: sticky;
@@ -2159,10 +2290,6 @@ form label > .optional {
   }
   .game-caption .installed-indicator {
     display: none;
-  }
-  .expanded-filters {
-    flex-wrap: wrap;
-    gap: 15px;
   }
   .library-footer {
     font-size: 10px;
@@ -2579,6 +2706,15 @@ dialog.artwork-dialog {
   width: 780px;
   max-width: calc(100vw - 48px);
 }
+dialog.artwork-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.artwork-dialog .dialog-header {
+  position: static;
+  flex: none;
+}
 .settings-page {
   flex: 1;
   min-height: 0;
@@ -2691,10 +2827,20 @@ dialog.artwork-dialog {
   white-space: nowrap;
 }
 
-.version-select {
-  max-width: 220px;
-  min-width: 110px;
-  flex-shrink: 1;
+.version-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+}
+.version-control select {
+  min-width: 0;
+  max-width: 245px;
+  min-height: 35px;
+  color: var(--text);
+  text-overflow: ellipsis;
 }
 .setting-row > select {
   background: var(--surface);
@@ -2897,10 +3043,48 @@ dialog.artwork-dialog {
   font-weight: 400;
 }
 
-.bulk-actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 28px 14px;padding:12px 16px;background:var(--surface);border:1px solid var(--accent);border-radius:10px;font-size:12px}.bulk-actions select{max-width:230px}.game-selected .cover-wrap{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}.card-select{position:absolute;top:9px;left:9px;width:24px;height:24px;z-index:4;border:1px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--accent);opacity:0}.game-card:hover .card-select,.card-select:focus-visible,.card-select.visible{opacity:1}.card-select.active{background:var(--accent);color:var(--on-accent)}.banished-settings-card{display:flex;align-items:center;gap:18px;text-align:left;padding:18px 22px;border:1px solid var(--line);border-radius:12px;background:var(--surface);width:100%;margin-bottom:20px}.banished-settings-card span{flex:1}.banished-settings-card small{display:block;color:var(--muted);margin-top:5px}.banished-settings-card b{font-size:24px;color:var(--accent)}dialog.banished-dialog{width:min(850px,94vw)}.banish-confirm>p{margin-bottom:16px}.banish-confirm-list{max-height:220px;overflow:auto;font-size:13px;color:var(--muted);line-height:1.9}.danger-button{background:var(--danger)!important;color:var(--bg)!important}.library-operation{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;gap:14px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--text)}
+.bulk-actions,
+.bulk-selection-controls,
+.bulk-action-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.bulk-actions {
+  justify-content: space-between;
+  margin: 0 24px 10px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.bulk-selection-controls,
+.bulk-action-controls {
+  min-width: 0;
+}
+.bulk-selection-controls .text-button {
+  min-height: 32px;
+}
+.bulk-actions select {
+  min-width: 0;
+  max-width: min(230px, 100%);
+}
+
+.game-selected .cover-wrap{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}.card-select{position:absolute;top:9px;left:9px;width:24px;height:24px;z-index:4;border:1px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--accent);opacity:0}.game-card:hover .card-select,.card-select:focus-visible,.card-select.visible{opacity:1}.card-select.active{background:var(--accent);color:var(--on-accent)}.banished-settings-card{display:flex;align-items:center;gap:18px;text-align:left;padding:18px 22px;border:1px solid var(--line);border-radius:12px;background:var(--surface);width:100%;margin-bottom:20px}.banished-settings-card span{flex:1}.banished-settings-card small{display:block;color:var(--muted);margin-top:5px}.banished-settings-card b{font-size:24px;color:var(--accent)}dialog.banished-dialog{width:min(850px,94vw)}.banish-confirm>p{margin-bottom:16px}.banish-confirm-list{max-height:220px;overflow:auto;font-size:13px;color:var(--muted);line-height:1.9}.danger-button{background:var(--danger)!important;color:var(--bg)!important}.library-operation{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;gap:14px;background:color-mix(in srgb,var(--bg) 88%,transparent);color:var(--text)}
 
 dialog.banished-dialog{max-width:850px;width:calc(100vw - 48px)}
 .bulk-actions select,.banished-controls input{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:12px;}
+.bulk-selection-status {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.bulk-selection-outside {
+  color: var(--muted);
+}
 .card-select:not(.visible){top:auto;bottom:9px;pointer-events:none;}
 .game-card:hover .card-select,.card-select:focus-visible,.card-select.visible{pointer-events:auto;}
 /* Smart Collections is a dedicated workflow; keep its action next to Filters. */
@@ -2976,6 +3160,8 @@ dialog.grouping-dialog { width: 980px; max-width: calc(100vw - 40px); }
 .sources-page .source-panels .discovery-panel > svg { width: 38px; height: 38px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; color: var(--accent); }
 .sources-page .source-panels .discovery-panel h2 { font-size: 14px; font-weight: 600; margin: 2px 0 7px; }
 .sources-page .source-panels .discovery-panel p { line-height: 1.55; }
+.sources-page .source-panels .discovery-panel .scan-summary { margin-top: 9px; color: var(--muted); }
+.sources-page .source-panels .discovery-panel .scan-summary.error { color: var(--danger); overflow-wrap: anywhere; }
 .sources-page .source-panels .discovery-panel button { grid-column: 2; justify-self: start; margin: 0; }
 .folder-manage { display: inline-flex; align-items: center; gap: 5px; }
 .source-folders[open] .folder-manage svg { transform: rotate(180deg); }

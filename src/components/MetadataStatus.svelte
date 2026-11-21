@@ -5,9 +5,15 @@
     RefreshCw,
     ArrowUpRight,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
+    Search,
+    X,
   } from "@lucide/svelte";
   import type { Game } from "../lib/types";
   import { missingFields } from "../lib/gaps";
+  import { matchesSearch, searchText, searchWords } from "../lib/search-index";
+
   let {
     games,
     failures,
@@ -21,24 +27,152 @@
     onopen?: (game: Game) => void;
     busy?: boolean;
   } = $props();
-  let gapLimit = $state(60),
-    failedLimit = $state(60);
-  let gaps = $derived(
-    games
-      .map((game) => ({
-        game,
-        fields: missingFields({ ...game, metadataLocked: false }),
-      }))
-      .filter((x) => x.fields.length),
-  );
-  let failed = $derived.by(() => {
-    const byUrl = new Map(failures.map((f) => [f.url, f]));
-    return games.flatMap((game) => {
-      const item = game.cover ? byUrl.get(game.cover) : undefined;
-      return item ? [{ game, ...item }] : [];
-    });
+
+  const pageSize = 24;
+  const includeLocked = { includeLocked: true };
+  let query = $state("");
+  let searchInput: HTMLInputElement;
+  let words = $derived(searchWords(query));
+  let open = $state({ gaps: false, covers: false });
+  let pages = $state({ gaps: 0, covers: 0 });
+  const lists: Partial<Record<keyof typeof open, HTMLDivElement>> = {};
+
+  let gaps = $derived.by(() => {
+    const entries: { game: Game; fields: string[] }[] = [];
+    for (const game of games) {
+      const fields = missingFields(game, includeLocked);
+      if (fields.length) entries.push({ game, fields });
+    }
+    return entries;
   });
+  let failed = $derived.by(() => {
+    const entries: { game: Game; retryAt: number }[] = [];
+    if (!failures.length) return entries;
+    const byUrl = new Map(
+      failures.map((failure) => [failure.url, failure.retryAt]),
+    );
+    for (const game of games) {
+      const retryAt = game.cover ? byUrl.get(game.cover) : undefined;
+      if (retryAt !== undefined) entries.push({ game, retryAt });
+    }
+    return entries;
+  });
+
+  type Entry = (typeof gaps)[number] | (typeof failed)[number];
+  const normalizedTitles = new WeakMap<Game, { title: string; text: string }>();
+
+  function filterEntries<T extends Entry>(entries: T[], terms: string[]) {
+    if (!terms.length) return entries;
+    return entries.filter(({ game }) => {
+      let cached = normalizedTitles.get(game);
+      if (cached?.title !== game.title) {
+        cached = { title: game.title, text: searchText(game.title) };
+        normalizedTitles.set(game, cached);
+      }
+      return matchesSearch(cached.text, terms);
+    });
+  }
+
+  let matchingGaps = $derived(filterEntries(gaps, words));
+  let matchingCovers = $derived(filterEntries(failed, words));
+
+  function resetPages() {
+    setPage("gaps", 0);
+    setPage("covers", 0);
+  }
+
+  function setPage(key: keyof typeof open, page: number) {
+    pages[key] = page;
+    const list = lists[key];
+    if (list) list.scrollTop = 0;
+  }
+
+  function clearSearch() {
+    query = "";
+    resetPages();
+    searchInput?.focus();
+  }
 </script>
+
+{#snippet report(
+  key: keyof typeof open,
+  label: string,
+  description: string,
+  Icon: typeof ClipboardList,
+  entries: Entry[],
+  empty: string,
+)}
+  {@const lastPage = Math.max(0, Math.ceil(entries.length / pageSize) - 1)}
+  {@const page = Math.min(pages[key], lastPage)}
+  {@const start = page * pageSize}
+  <details bind:open={open[key]}>
+    <summary>
+      <span class="health-icon"><Icon size={16} /></span>
+      <span><strong>{label}</strong><small>{description}</small></span>
+      <b>{entries.length.toLocaleString()}</b>
+      <ChevronDown size={15} class="health-chevron" />
+    </summary>
+    {#if open[key]}
+      {#if lastPage}
+        <div class="health-pages">
+          <span role="status"
+            >{(start + 1).toLocaleString()}–{Math.min(
+              start + pageSize,
+              entries.length,
+            ).toLocaleString()}
+            of {entries.length.toLocaleString()}</span
+          >
+          <button
+            class="icon-button"
+            aria-label={`Previous page of ${label.toLowerCase()}`}
+            aria-disabled={page === 0}
+            onclick={() => {
+              if (page > 0) setPage(key, page - 1);
+            }}><ChevronLeft size={16} /></button
+          >
+          <button
+            class="icon-button"
+            aria-label={`Next page of ${label.toLowerCase()}`}
+            aria-disabled={page === lastPage}
+            onclick={() => {
+              if (page < lastPage) setPage(key, page + 1);
+            }}><ChevronRight size={16} /></button
+          >
+        </div>
+      {/if}
+      <div class="health-list" bind:this={lists[key]}>
+        {#each entries.slice(start, start + pageSize) as item (item.game.id)}
+          {@const detail =
+            "fields" in item
+              ? item.fields.join(" · ") +
+                (item.game.metadataLocked ? " · Locked" : "")
+              : item.retryAt > Date.now()
+                ? `Retry after ${new Date(item.retryAt).toLocaleString()}`
+                : "Retry pending"}
+          {#if onopen}
+            <button
+              class="health-row health-row-button"
+              onclick={() => onopen?.(item.game)}
+            >
+              <span
+                ><strong>{item.game.title}</strong><small>{detail}</small></span
+              >
+              <ArrowUpRight size={13} />
+            </button>
+          {:else}
+            <div class="health-row">
+              <strong>{item.game.title}</strong><small>{detail}</small>
+            </div>
+          {/if}
+        {:else}
+          <p class="health-empty">
+            {words.length ? "No matching games." : empty}
+          </p>
+        {/each}
+      </div>
+    {/if}
+  </details>
+{/snippet}
 
 <section class="health settings-panel" aria-label="Metadata and cache status">
   <div class="health-head">
@@ -50,75 +184,48 @@
       ><RefreshCw size={14} />Scan metadata</button
     >
   </div>
+  <div class="library-search health-search">
+    <Search size={15} aria-hidden="true" />
+    <input
+      type="search"
+      aria-label="Search metadata and cover reports"
+      placeholder="Search games in these reports…"
+      autocomplete="off"
+      bind:this={searchInput}
+      bind:value={query}
+      oninput={resetPages}
+      onkeydown={(event) => {
+        if (event.key !== "Escape" || event.isComposing || !query) return;
+        event.preventDefault();
+        event.stopPropagation();
+        clearSearch();
+      }}
+    />
+    {#if query}
+      <button
+        type="button"
+        aria-label="Clear report search"
+        onclick={clearSearch}><X size={14} /></button
+      >
+    {/if}
+  </div>
   <div class="health-grid">
-    <details>
-      <summary
-        ><span class="health-icon"><ClipboardList size={16} /></span><span
-          ><strong>Missing metadata</strong><small
-            >Games with incomplete details</small
-          ></span
-        ><b>{gaps.length}</b><ChevronDown size={15} class="health-chevron" /></summary
-      >
-      <div class="health-list">
-        {#each gaps.slice(0, gapLimit) as item (item.game.id)}{#if onopen}<button
-              class="health-row health-row-button"
-              onclick={() => onopen?.(item.game)}
-              ><span
-                ><strong>{item.game.title}</strong><small
-                  >{item.fields.join(" · ")}{item.game.metadataLocked
-                    ? " · Locked"
-                    : ""}</small
-                ></span
-              ><ArrowUpRight size={13} /></button
-            >{:else}<div class="health-row">
-              <strong>{item.game.title}</strong><small
-                >{item.fields.join(" · ")}{item.game.metadataLocked
-                  ? " · Locked"
-                  : ""}</small
-              >
-            </div>{/if}{:else}<p class="health-empty">
-            No missing metadata found.
-          </p>{/each}{#if gaps.length > gapLimit}<button
-            class="text-button"
-            onclick={() => (gapLimit += 60)}
-            >Show more ({gapLimit} of {gaps.length})</button
-          >{/if}
-      </div>
-    </details>
-    <details>
-      <summary
-        ><span class="health-icon"><ImageOff size={16} /></span><span
-          ><strong>Unavailable covers</strong><small
-            >Failed cache attempts</small
-          ></span
-        ><b>{failed.length}</b><ChevronDown size={15} class="health-chevron" /></summary
-      >
-      <div class="health-list">
-        {#each failed.slice(0, failedLimit) as item (item.game.id)}{#if onopen}<button
-              class="health-row health-row-button"
-              onclick={() => onopen?.(item.game)}
-              ><span
-                ><strong>{item.game.title}</strong><small
-                  >{item.retryAt > Date.now()
-                    ? `Retry after ${new Date(item.retryAt).toLocaleString()}`
-                    : "Retry pending"}</small
-                ></span
-              ><ArrowUpRight size={13} /></button
-            >{:else}<div class="health-row">
-              <strong>{item.game.title}</strong><small
-                >{item.retryAt > Date.now()
-                  ? `Retry after ${new Date(item.retryAt).toLocaleString()}`
-                  : "Retry pending"}</small
-              >
-            </div>{/if}{:else}<p class="health-empty">
-            No failed cover attempts.
-          </p>{/each}{#if failed.length > failedLimit}<button
-            class="text-button"
-            onclick={() => (failedLimit += 60)}
-            >Show more ({failedLimit} of {failed.length})</button
-          >{/if}
-      </div>
-    </details>
+    {@render report(
+      "gaps",
+      "Missing metadata",
+      "Games with incomplete details",
+      ClipboardList,
+      matchingGaps,
+      "No missing metadata found.",
+    )}
+    {@render report(
+      "covers",
+      "Unavailable covers",
+      "Failed cache attempts",
+      ImageOff,
+      matchingCovers,
+      "No failed cover attempts.",
+    )}
   </div>
 </section>
 
@@ -150,6 +257,7 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+    align-items: start;
   }
   .health details {
     border: 1px solid var(--line);
@@ -266,8 +374,34 @@
     color: var(--muted);
     padding: 10px 0;
   }
-  .health-list > .text-button {
-    margin-top: 10px;
+  .health-search {
+    width: min(100%, 340px);
+    margin-bottom: 12px;
+  }
+  .health-search input::-webkit-search-cancel-button {
+    display: none;
+  }
+  .health-pages {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+    border-top: 1px solid var(--line);
+    padding: 4px 8px;
+  }
+  .health-pages span {
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    margin-right: 4px;
+  }
+  .health-row-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .health-pages button[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: default;
   }
   @media (max-width: 1100px) {
     .health-grid {

@@ -3,7 +3,7 @@
   import { tick } from "svelte";
   import type { Game, LibraryGroup } from "../lib/types";
   import GameCard from "./GameCard.svelte";
-  import { gridLayout, gridRowAt } from "../lib/grid-layout";
+  import { gridLayout } from "../lib/grid-layout";
   import { setArtworkWindow, clearArtworkWindow } from "../lib/backend";
   import { artworkRowsWindow, thumbnailWidth } from "../lib/artwork-window";
   let {
@@ -64,17 +64,33 @@
     ((width - gap * (columns - 1)) / columns) * 1.5 + (compact ? 60 : 78),
   );
   let layout = $derived(gridLayout(games, groups, columns, rowHeight));
-  let first = $derived(gridRowAt(layout.rows, top));
+  let first = $derived(layout.rowAt(top));
   let last = $derived(
-    Math.min(layout.rows.length, gridRowAt(layout.rows, top + height) + 1),
+    Math.min(layout.rowCount, layout.rowAt(top + height) + 1),
   );
   let start = $derived(Math.max(0, first - 1));
-  let end = $derived(Math.min(layout.rows.length, last + 1));
-  let visible = $derived(layout.rows.slice(start, end));
+  let end = $derived(Math.min(layout.rowCount, last + 1));
+  let visible = $derived(
+    Array.from({ length: end - start }, (_, i) => layout.row(start + i)!),
+  );
+  export async function jumpToGroup(id: string) {
+    const offset = layout.groupOffsets.get(id);
+    if (offset === undefined || !viewport) return;
+    viewport.scrollTop = offset;
+    if (viewport.scrollTop !== top) {
+      direction = viewport.scrollTop > top ? 1 : -1;
+      top = viewport.scrollTop;
+      onscroll(top);
+    }
+    await tick();
+    viewport
+      ?.querySelector<HTMLElement>(`[data-group-id="${CSS.escape(id)}"]`)
+      ?.focus({ preventScroll: true });
+  }
   $effect(() => {
     setArtworkWindow(
       artworkOwner,
-      artworkRowsWindow(layout.rows, first, last, direction, thumbnail),
+      artworkRowsWindow(layout.row, first, last, direction, thumbnail),
     );
   });
   $effect(() => () => clearArtworkWindow(artworkOwner));
@@ -127,7 +143,8 @@
   bind:clientHeight={height}
   onscroll={() => {
     if (!viewport) return;
-    direction = viewport.scrollTop >= top ? 1 : -1;
+    if (viewport.scrollTop !== top)
+      direction = viewport.scrollTop > top ? 1 : -1;
     top = viewport.scrollTop;
     onscroll(top);
   }}
@@ -168,10 +185,14 @@
       {:else}
         <h2
           class="library-group-heading"
+          data-group-id={row.groupId}
+          tabindex="-1"
           aria-label={`${row.name} ${row.count}`}
           style:transform={`translateY(${row.top}px)`}
         >
-          <span>{row.name}</span><span class="group-count">{row.count}</span>
+          <span title={row.name}>{row.name}</span><span
+            class="group-count">{row.count}</span
+          >
           {#if onsavegroup}<button
               class="text-button save-group-collection"
               aria-label={`Save ${row.name} as Collection`}

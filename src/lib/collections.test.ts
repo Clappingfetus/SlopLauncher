@@ -6,11 +6,13 @@ import {
   saveCollection,
   setMembership,
   addCollectionGame,
+  addCollectionGames,
   withoutGame,
 } from "./collections";
 import { filterGames, mergeDiscovered, mergeOwnedLibrary } from "./library";
 import { demoGames } from "./demo";
 import { identity } from "./enrichment-identity";
+import { groupGames } from "./grouping";
 import type { GameCollection } from "./types";
 describe("custom collections follow the live library", () => {
   it("accepts games added later across sources and combines search, tags, installed state and sorting", () => {
@@ -52,7 +54,10 @@ describe("custom collections follow the live library", () => {
         collections,
       ),
     ).toEqual([]);
-    expect(collectionCounts(collections, games).get("weekend")).toBe(2);
+    const live = new Set(games.map((game) => game.id));
+    expect(collectionCounts(collections, (id) => live.has(id)).get("weekend")).toBe(
+      2,
+    );
     expect(
       filterGames(
         games,
@@ -117,8 +122,11 @@ describe("custom collections follow the live library", () => {
   });
   it("ignores disappeared games in counts and editor saves, retaining concurrently added games", () => {
     const games = demoGames();
-    const initial = [{ id: "a", name: "A", gameIds: [games[0].id, "removed"] }];
-    expect(collectionCounts(initial, games).get("a")).toBe(1);
+    const initial = [
+      { id: "a", name: "A", gameIds: [games[0].id, games[0].id, "removed"] },
+    ];
+    const live = new Set(games.map((game) => game.id));
+    expect(collectionCounts(initial, (id) => live.has(id)).get("a")).toBe(1);
     const saved = saveCollection(
       initial,
       {
@@ -153,6 +161,48 @@ describe("custom collections follow the live library", () => {
 });
 
 describe("saved grouping collections", () => {
+  it("resolves shared, missing and distinct saved buckets in library order", () => {
+    const games = demoGames().slice(0, 3).map((game, index) => ({
+      ...game,
+      genres: [index === 1 ? "Action" : "Puzzle"],
+      tags: [],
+    }));
+    const live = (id: string, groupId: string): GameCollection => ({
+      id,
+      name: id,
+      gameIds: ["stale"],
+      rule: { mode: "tags", groupId, groups: [] },
+    });
+    const manual = { id: "manual", name: "Manual", gameIds: [games[1].id] };
+    const saved: GameCollection[] = [
+      live("first", "tag:puzzle"),
+      live("missing", "tag:missing"),
+      manual,
+      live("second", "tag:action"),
+      live("shared", "tag:puzzle"),
+    ];
+    const late = { ...games[0], id: "late", notes: "Keep me", favorite: true };
+    const rematched = { ...late, metadataId: 543210, genres: ["Action"] };
+    const snapshots = [games, [late, ...games], [rematched, ...games], games.slice(1)];
+    for (const snapshot of snapshots) {
+      const grouped = groupGames(snapshot, "tags");
+      const resolved = resolveCollections(saved, snapshot);
+      expect(resolved.map((c) => c.id)).toEqual(saved.map((c) => c.id));
+      expect(resolved[2]).toBe(manual);
+      for (const collection of saved) {
+        const groupId = collection.rule?.groupId;
+        if (!groupId) continue;
+        const expected =
+          grouped.find((g) => g.id === groupId)?.games.map((g) => g.id) ?? [];
+        expect(resolved.find((c) => c.id === collection.id)?.gameIds).toEqual(
+          expected,
+        );
+        expect(collectionMembers(collection, snapshot)).toEqual(expected);
+      }
+    }
+    expect(rematched).toMatchObject({ notes: "Keep me", favorite: true });
+  });
+
   it("keeps copied rules live for late additions, changed tags, removals and hidden games", () => {
     const games = demoGames()
       .slice(0, 2)
@@ -338,4 +388,35 @@ it("adds late games idempotently and rejects stale collection gestures", () => {
     addCollectionGame([automatic], automatic.id, late.id, live),
   ).toThrow("automatic rules");
   expect(automatic.gameIds).toEqual([]);
+});
+
+it("adds only new members in selection order and rejects stale batches", () => {
+  const folder = { id: "weekend", name: "Weekend", gameIds: ["already"] };
+  const automatic: GameCollection = {
+    id: "automatic",
+    name: "Co-op",
+    gameIds: [],
+    rule: { mode: "tags", groupId: "tag:co-op", groups: [] },
+  };
+  const collections = [folder, automatic];
+  const live = new Set(["already", "late", "rematched"]);
+  const hasGame = (id: string) => live.has(id);
+  const selection = ["late", "already", "late", "rematched"];
+  const result = addCollectionGames(collections, folder.id, selection, hasGame);
+  expect(result.addedCount).toBe(2);
+  expect(result.collections[0].gameIds).toEqual(["already", "late", "rematched"]);
+  expect(result.collections[1]).toBe(automatic);
+  expect(folder.gameIds).toEqual(["already"]);
+  const repeat = addCollectionGames(result.collections, folder.id, selection, hasGame);
+  expect(repeat.collections).toBe(result.collections);
+  expect(repeat.addedCount).toBe(0);
+
+  live.delete("rematched");
+  expect(() =>
+    addCollectionGames(collections, folder.id, selection, hasGame),
+  ).toThrow("no longer available");
+  expect(() =>
+    addCollectionGames(collections, automatic.id, ["late"], hasGame),
+  ).toThrow("automatic rules");
+  expect(folder.gameIds).toEqual(["already"]);
 });

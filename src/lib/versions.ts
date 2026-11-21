@@ -1,6 +1,6 @@
 import { summarizeActivity, type ActivitySummary } from "./play-activity";
 import { ratingRows } from "./ratings";
-import type { Game, Copy, Settings } from "./types";
+import { sourceNames, type Game, type Copy, type Settings } from "./types";
 import { currentResult, steamId } from "./enrichment-identity";
 import { preferredArtwork } from "./store-artwork";
 import { isEmulated, selectedArtwork } from "./artwork";
@@ -46,6 +46,49 @@ export function gameContextIdentity(game: Game, copy: Copy | undefined) {
 export interface GameVersion {
   game: Game;
   copy: Copy;
+}
+interface VersionOption extends GameVersion {
+  key: string;
+  label: string;
+  detail?: string;
+}
+export function versionKey(gameId: string, copyId: string) {
+  return JSON.stringify([gameId, copyId]);
+}
+export function versionOptions(versions: GameVersion[]): VersionOption[] {
+  const counts = new Map<string, number>();
+  const options = versions.map(({ game, copy }) => {
+    const source = sourceNames[copy.source] ?? copy.source;
+    const status =
+      copy.available === false
+        ? " · Unavailable"
+        : copy.installed
+          ? " · Installed"
+          : "";
+    const label = source + status;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+    return { key: versionKey(game.id, copy.id), label, game, copy };
+  });
+  const compactCounts = new Map<string, number>();
+  const labeled = options.map<VersionOption>((option) => {
+    if (counts.get(option.label) === 1) return option;
+    const { game, copy } = option;
+    const detail =
+      copy.emulation?.gamePath ||
+      copy.executable ||
+      copy.installPath ||
+      copy.sourceId ||
+      game.title;
+    const basename = detail.split(/[\\/]/).filter(Boolean).at(-1) ?? detail;
+    const label = `${basename} · ${option.label}`;
+    compactCounts.set(label, (compactCounts.get(label) ?? 0) + 1);
+    return { ...option, label, detail };
+  });
+  return labeled.map((option) =>
+    option.detail && (compactCounts.get(option.label) ?? 0) > 1
+      ? { ...option, label: `${option.label} · ${option.detail}` }
+      : option,
+  );
 }
 const titleKey = (s: string) =>
   s
@@ -96,7 +139,7 @@ function matchIdentity(g: Game, revision: number): MatchIdentity {
   return {
     platform,
     igdb,
-    title: platform + ":" + titleKey(g.title),
+    title: titleKey(g.title),
     catalogs,
     // Wiki articles can cover multiple editions; they are not ownership IDs.
     keys: [...catalogs].flatMap(([source, ids]) =>
@@ -125,6 +168,39 @@ export function createVersionResolver() {
 }
 // Presentation-only grouping: retain every original record and its launch copy.
 // Catalog conflicts must win over title similarity; never merge ownership here.
+function countLibraryGames(
+  games: Game[],
+  showHidden: boolean,
+  groupId?: (id: string) => string,
+) {
+  const visible = 1,
+    hidden = 2,
+    favorite = 4,
+    installed = 8;
+  const counted = groupId ? new Map<string, number>() : undefined;
+  const counts = { library: 0, hidden: 0, favorites: 0, installed: 0 };
+  for (const game of games) {
+    const isVisible = showHidden || !game.hidden;
+    let flags = game.hidden ? hidden : 0;
+    if (isVisible) {
+      flags |= visible;
+      if (game.favorite) flags |= favorite;
+      if (game.copies.some((copy) => copy.installed)) flags |= installed;
+    }
+    if (counted && groupId) {
+      // Each edition can contribute different flags to the same group.
+      const key = groupId(game.id);
+      const previous = counted.get(key) ?? 0;
+      counted.set(key, previous | flags);
+      flags &= ~previous;
+    }
+    if (flags & visible) counts.library++;
+    if (flags & hidden) counts.hidden++;
+    if (flags & favorite) counts.favorites++;
+    if (flags & installed) counts.installed++;
+  }
+  return counts;
+}
 export function versionLibrary(
   games: Game[],
   settings: Settings,
@@ -132,7 +208,8 @@ export function versionLibrary(
   revision = 0,
   readIdentity = matchIdentity,
 ) {
-  const byId = new Map(games.map((g) => [g.id, g]));
+  const byId = new Map<string, Game>();
+  for (const game of games) byId.set(game.id, game);
   if (!indexDuplicates)
     return {
       members: (id: string) => (byId.has(id) ? [byId.get(id)!] : []),
@@ -143,6 +220,8 @@ export function versionLibrary(
         })),
       collapse: (list: Game[]) => list,
       count: (list: Game[]) => list.length,
+      counts: (list: Game[], showHidden: boolean) =>
+        countLibraryGames(list, showHidden),
       choose: (list: Game[]) => list[0],
       withArtwork: (game: Game) => game,
       withPresentation: (game: Game) => ({
@@ -150,13 +229,16 @@ export function versionLibrary(
         reviewSummary: ratingRows([game]),
       }),
     };
-  const parent = new Map(games.map((g) => [g.id, g.id]));
-  const facts = new Map(
-    games.map((g) => [g.id, new Map(readIdentity(g, revision).catalogs)]),
-  );
+  // Only non-root records need parent entries.
+  const parent = new Map<string, string>();
+  const facts = new Map<string, Map<string, Set<string>>>();
   const root = (id: string): string => {
     let r = id;
-    while (parent.get(r) !== r) r = parent.get(r)!;
+    let next = parent.get(r);
+    while (next !== undefined) {
+      r = next;
+      next = parent.get(r);
+    }
     while (id !== r) {
       const next = parent.get(id)!;
       parent.set(id, r);
@@ -181,7 +263,8 @@ export function versionLibrary(
         return;
     }
     parent.set(b, a);
-    for (const [source, ids] of right) left.set(source, ids);
+    // Identities can be reused by the next index. Only merged roots own new facts.
+    facts.set(a, new Map([...left, ...right]));
   };
   const compatible = (list: Game[]) => {
     const combined = new Map<string, Set<string>>();
@@ -198,47 +281,48 @@ export function versionLibrary(
     }
     return true;
   };
-  const strong = new Map<string, Game[]>(),
-    titles = new Map<string, Game[]>();
-  if (indexDuplicates) {
-    for (const g of games) {
-      const identity = readIdentity(g, revision);
-      for (const key of identity.keys) {
-        const value = identity.platform + ":" + key,
-          list = strong.get(value) ?? [];
-        list.push(g);
-        strong.set(value, list);
+  const strong = new Map<string, Game | Game[]>(),
+    titles = new Map<string, Game | Game[]>();
+  const addToBucket = (
+    buckets: Map<string, Game | Game[]>,
+    key: string,
+    game: Game,
+  ) => {
+    const bucket = buckets.get(key);
+    if (Array.isArray(bucket)) bucket.push(game);
+    else buckets.set(key, bucket ? [bucket, game] : game);
+  };
+  for (const g of games) {
+    const identity = readIdentity(g, revision);
+    facts.set(g.id, identity.catalogs);
+    for (const key of identity.keys)
+      addToBucket(strong, identity.platform + ":" + key, g);
+    if (identity.title)
+      addToBucket(titles, identity.platform + ":" + identity.title, g);
+  }
+  for (const list of strong.values()) {
+    // Reject an ambiguous bucket as a whole, rather than assigning an
+    // unknown copy to whichever conflicting candidate happened to arrive first.
+    if (!Array.isArray(list) || !compatible(list)) continue;
+    for (const g of list.slice(1)) join(list[0].id, g.id);
+  }
+  for (const list of titles.values()) {
+    if (!Array.isArray(list)) continue;
+    // Repeated same-store titles are ambiguous unless a catalog identity already joined them.
+    const owners = new Map<string, Set<string>>();
+    for (const g of list)
+      for (const c of g.copies) {
+        const set = owners.get(c.source) ?? new Set<string>();
+        set.add(root(g.id));
+        owners.set(c.source, set);
       }
-      const key = identity.title;
-      if (!titleKey(g.title)) continue;
-      const list = titles.get(key) ?? [];
-      list.push(g);
-      titles.set(key, list);
-    }
-    for (const list of strong.values()) {
-      // Reject an ambiguous bucket as a whole, rather than assigning an
-      // unknown copy to whichever conflicting candidate happened to arrive first.
-      if (list.length < 2 || !compatible(list)) continue;
-      for (const g of list.slice(1)) join(list[0].id, g.id);
-    }
-    for (const list of titles.values()) {
-      if (list.length < 2) continue;
-      // Repeated same-store titles are ambiguous unless a catalog identity already joined them.
-      const owners = new Map<string, Set<string>>();
-      for (const g of list)
-        for (const c of g.copies) {
-          const set = owners.get(c.source) ?? new Set<string>();
-          set.add(root(g.id));
-          owners.set(c.source, set);
-        }
-      if ([...owners.values()].some((set) => set.size > 1)) continue;
-      const years = new Set(list.map((g) => g.year).filter(Boolean));
-      const ids = new Set(
-        list.map((g) => readIdentity(g, revision).igdb).filter(Boolean),
-      );
-      if (years.size > 1 || ids.size > 1 || !compatible(list)) continue;
-      for (const g of list.slice(1)) join(list[0].id, g.id);
-    }
+    if ([...owners.values()].some((set) => set.size > 1)) continue;
+    const years = new Set(list.map((g) => g.year).filter(Boolean));
+    const ids = new Set(
+      list.map((g) => readIdentity(g, revision).igdb).filter(Boolean),
+    );
+    if (years.size > 1 || ids.size > 1 || !compatible(list)) continue;
+    for (const g of list.slice(1)) join(list[0].id, g.id);
   }
   const groups = new Map<string, Game[]>();
   for (const g of games) {
@@ -339,14 +423,19 @@ export function versionLibrary(
   }
   function collapse(list: Game[]): Game[] {
     if (!settings.hideDuplicateGames) return list;
-    const buckets = new Map<string, Game[]>();
-    for (const g of list) {
-      const key = root(g.id),
-        bucket = buckets.get(key) ?? [];
-      bucket.push(g);
-      buckets.set(key, bucket);
+    const buckets = new Map<string, Game | Game[]>();
+    for (const game of list) {
+      const key = root(game.id);
+      const bucket = buckets.get(key);
+      if (Array.isArray(bucket)) bucket.push(game);
+      else buckets.set(key, bucket ? [bucket, game] : game);
     }
-    return [...buckets.values()].map(choose);
+    const collapsed: Game[] = [];
+    for (const bucket of buckets.values()) {
+      if (Array.isArray(bucket)) collapsed.push(choose(bucket));
+      else collapsed.push(bucket.copies.length <= 1 ? bucket : choose([bucket]));
+    }
+    return collapsed;
   }
   const reviewGroups = new Map<string, ReturnType<typeof ratingRows>>();
   const activityGroups = new Map<string, ActivitySummary | undefined>();
@@ -394,5 +483,11 @@ export function versionLibrary(
     for (const game of list) groups.add(root(game.id));
     return groups.size;
   }
-  return { members, versions, collapse, count, choose, withArtwork, withPresentation };
+  const counts = (list: Game[], showHidden: boolean) =>
+    countLibraryGames(
+      list,
+      showHidden,
+      settings.hideDuplicateGames ? root : undefined,
+    );
+  return { members, versions, collapse, count, counts, choose, withArtwork, withPresentation };
 }

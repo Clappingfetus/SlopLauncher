@@ -9,6 +9,58 @@ export function searchText(text: string) {
     .replace(/[’']/g, "")
     .replace(/[‐‑–—:_-]/g, " ");
 }
+
+export function searchWords(query: string) {
+  return searchText(query).trim().split(/\s+/).filter(Boolean);
+}
+
+export function matchesSearch(text: string, words: string[]) {
+  for (const word of words) {
+    if (!text.includes(word)) return false;
+  }
+  return true;
+}
+
+export function narrowGameSearch(entries: { game: Game; text: string }[]) {
+  let previousWords: string[] = [];
+  let previousMatches = entries;
+  let previousGames: Game[] | undefined;
+
+  return (words: string[]) => {
+    // Narrow only if the new query still implies every previous requirement.
+    const narrowing = previousWords.every((word) =>
+      words.some((next) => next.includes(word)),
+    );
+    const candidates = narrowing ? previousMatches : entries;
+    const required =
+      narrowing && previousWords.length
+        ? words.filter((word) => !previousWords.some((old) => old.includes(word)))
+        : words;
+    previousWords = words;
+
+    // Keep the existing result array if all candidates still match. This also
+    // avoids touching the library for edits that leave the requirements equal.
+    let matches = candidates;
+    if (required.length) {
+      const firstMiss = candidates.findIndex(
+        ({ text }) => !matchesSearch(text, required),
+      );
+      if (firstMiss !== -1) {
+        matches = candidates.slice(0, firstMiss);
+        for (let i = firstMiss + 1; i < candidates.length; i++) {
+          const entry = candidates[i];
+          if (matchesSearch(entry.text, required)) matches.push(entry);
+        }
+      }
+    }
+    if (!previousGames || matches !== previousMatches) {
+      previousMatches = matches;
+      previousGames = matches.map(({ game }) => game);
+    }
+    return previousGames;
+  };
+}
+
 const cache = new WeakMap<
   Game,
   {

@@ -10,9 +10,10 @@ function apply(games: Game[], updates: GameFlagsUpdate[]) {
   if (!updates.length) return { games, updates };
   const patches = new Map(updates.map((update) => [update.id, update]));
   return {
-    games: games.map((game) =>
-      patches.has(game.id) ? { ...game, ...patches.get(game.id)! } : game,
-    ),
+    games: games.map((game) => {
+      const patch = patches.get(game.id);
+      return patch ? { ...game, ...patch } : game;
+    }),
     updates,
   };
 }
@@ -26,13 +27,32 @@ export function changeDuplicateFlag(
   value: boolean,
   now = Date.now(),
 ) {
-  const members = index.members(id);
+  return changeDuplicateFlags(games, index, [id], flag, value, now);
+}
+
+export function changeDuplicateFlags(
+  games: Game[],
+  index: Index,
+  ids: readonly string[],
+  flag: Flag,
+  value: boolean,
+  now = Date.now(),
+) {
   const key = timestamp(flag);
-  const at = Math.max(now, ...members.map((game) => (game[key] ?? 0) + 1));
-  return apply(
-    games,
-    members.map((game) => ({ id: game.id, [flag]: value, [key]: at })),
-  );
+  const visited = new Set<string>();
+  const updates: GameFlagsUpdate[] = [];
+  for (const id of ids) {
+    if (visited.has(id)) continue;
+    const members = index.members(id);
+    let at = now;
+    for (const member of members)
+      at = Math.max(at, (member[key] ?? 0) + 1);
+    for (const member of members) {
+      visited.add(member.id);
+      updates.push({ id: member.id, [flag]: value, [key]: at });
+    }
+  }
+  return apply(games, updates);
 }
 
 /** Runs on every library/identity change, not just initial discovery. */
@@ -42,15 +62,22 @@ export function reconcileDuplicateFlags(games: Game[], index: Index) {
   for (const game of games) {
     if (visited.has(game.id)) continue;
     const members = index.members(game.id);
-    for (const member of members) visited.add(member.id);
     if (members.length < 2) continue;
+    for (const member of members) visited.add(member.id);
     const values = fields.map((flag) => {
       const key = timestamp(flag);
-      const at = Math.max(...members.map((member) => member[key] ?? 0));
-      // Before clocks existed, retain any positive personal preference.
-      const value = members.some(
-        (member) => (member[key] ?? 0) === at && !!member[flag],
-      );
+      let at = 0;
+      let value = false;
+      for (const member of members) {
+        const memberAt = member[key] ?? 0;
+        if (memberAt > at) {
+          at = memberAt;
+          value = !!member[flag];
+        } else if (memberAt === at && member[flag]) {
+          // Retain positive preferences when timestamps tie or are absent.
+          value = true;
+        }
+      }
       return { flag, key, at, value };
     });
     for (const member of members) {

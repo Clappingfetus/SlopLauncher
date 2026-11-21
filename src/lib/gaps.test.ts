@@ -98,6 +98,7 @@ describe("automatic gap search", () => {
     g.cover = undefined;
     g.metadataLocked = true;
     expect(missingFields(g)).toEqual([]);
+    expect(missingFields(g, { includeLocked: true })).toEqual(["box art"]);
     expect(gapProviderEnabled(g, "steam", status)).toBe(false);
   });
   it("tries a native store before third-party artwork or metadata", () => {

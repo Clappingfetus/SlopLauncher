@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ArrowRight,
     ArrowUpRight,
     RefreshCw,
     LoaderCircle,
@@ -7,7 +8,7 @@
     ExternalLink,
     ShieldCheck,
   } from "@lucide/svelte";
-  import { sourceNames, type Game, type AccountSource } from "../lib/types";
+  import { sourceNames, type AccountSource, type Game, type Source } from "../lib/types";
   import {
     accountSources,
     type AccountState,
@@ -34,12 +35,16 @@
     onSteamHistory,
     steamHistoryBusy = false,
     steamHistoryMessage = "",
+    browsableSourceCounts,
+    onbrowse,
     children,
   }: {
     games: Game[];
     onSteamHistory?: () => void;
     steamHistoryBusy?: boolean;
     steamHistoryMessage?: string;
+    browsableSourceCounts?: ReadonlyMap<Source, number>;
+    onbrowse?: (source: AccountSource) => void;
     children?: Snippet;
     only?: AccountSource;
     accounts: AccountState[];
@@ -145,6 +150,7 @@
 <div class="source-panels">
   {#each accountSources.filter((source) => !only || source === only) as source}
     {@const account = accounts.find((a) => a.source === source)!}
+    {@const count = sourceCounts.get(source) ?? 0}
     {@const busy = [
       "opening",
       "connecting",
@@ -161,7 +167,7 @@
         >
         <div>
           <h2>{sourceNames[source]}</h2>
-          <span>{sourceCounts.get(source) ?? 0} games in library</span>
+          <span>{count} {count === 1 ? "game" : "games"} in library</span>
         </div>
         <span class="connection-state"
           ><span
@@ -207,6 +213,14 @@
         </p>{/if}
       <div class="source-panel-footer">
         <div class="account-actions">
+          {#if onbrowse && browsableSourceCounts?.get(source)}
+            <button
+              class="text-button"
+              aria-label={`Browse ${sourceNames[source]} games`}
+              onclick={() => onbrowse?.(source)}
+              >Browse games<ArrowRight size={13} /></button
+            >
+          {/if}
           {#if account.connected}
             {#if source === "steam" && onSteamHistory}<button
                 class="text-button"
